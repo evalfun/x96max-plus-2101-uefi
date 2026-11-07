@@ -1,0 +1,45 @@
+## @file
+#  Amlogic X96 Max+ (SM1) PrePi platform initialization.
+#
+#  Copyright (c) 2026, Gus Bourg. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = X96PlatformPeiLib
+  FILE_GUID                      = 63055d6d-3e8a-4a91-93b0-37e51cd74a01
+  MODULE_TYPE                    = PEIM
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PlatformPeiLib|SEC
+
+[Sources]
+  PlatformPeiLib.c
+
+[Packages]
+  EmbeddedPkg/EmbeddedPkg.dec
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+  OvmfPkg/OvmfPkg.dec
+  Silicon/Amlogic/MesonSm1/MesonSm1.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  FdtLib
+  HobLib
+  MemoryAllocationLib
+  PcdLib
+
+[Guids]
+  gFdtHobGuid
+
+[FixedPcd]
+  gArmTokenSpaceGuid.PcdFvSize
+
+[Pcd]
+  gArmTokenSpaceGuid.PcdFvBaseAddress
+  gUefiOvmfPkgTokenSpaceGuid.PcdDeviceTreeInitialBaseAddress
+  gUefiOvmfPkgTokenSpaceGuid.PcdDeviceTreeAllocationPadding

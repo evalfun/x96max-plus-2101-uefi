@@ -1,0 +1,15 @@
+#
+#  Amlogic S905X3 (SM1) X96 Max+ platform package.
+#
+#  Copyright (c) 2026, Gus Bourg. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+[Defines]
+  DEC_SPECIFICATION              = 0x0001001B
+  PACKAGE_NAME                   = AmlogicX96MaxPlus
+  PACKAGE_GUID                   = 3b81bdf4-9a52-4eb7-8e69-cbe8eaf49270
+  PACKAGE_VERSION                = 0.1
+
+[Guids]
+  gX96TokenSpaceGuid = { 0x2b8f4c31, 0x7d6a, 0x4e19, { 0x95, 0xc2, 0x0a, 0x77, 0xe3, 0x1b, 0x64, 0xd8 } }
