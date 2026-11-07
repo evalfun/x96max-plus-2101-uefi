@@ -20,8 +20,21 @@
 
 #include <Ppi/GuidedSectionExtraction.h>
 #include <Ppi/ArmMpCoreInfo.h>
+#include <Library/ArmLib.h>
 
 #include "PrePi.h"
+
+//
+// Serial probes for bring-up on hardware whose UART is already programmed
+// by the first-stage bootloader.  These write one ASCII byte to the
+// UART_AO_A FIFO (meson UART data register) and must be removed once the
+// firmware reaches its dwell on this SoC.
+//
+#include <Library/IoLib.h>
+
+#define X96M_PROBE_UART  0xFF803000
+#define X96M_PROBE(ch) \
+  do { MmioWrite32 (X96M_PROBE_UART, ch); { volatile UINTN L; for (L = 0; L < 20000000; L++) { } } } while (0)
 
 VOID
 PrePiMain (
@@ -38,6 +51,8 @@ PrePiMain (
 
   // Initialize the architecture specific bits
   ArchInitialize ();
+  X96M_PROBE (0x47);                                // 'G' -- C code running
+  X96M_PROBE (0x30 + (UINT32)(ArmReadMpidr () & 0xFF));  // core id digit
 
   // Declare the PI/UEFI memory region
   HobList = HobConstructor (
@@ -57,10 +72,12 @@ PrePiMain (
 
   // SEC phase needs to run library constructors by hand.
   ProcessLibraryConstructorList ();
+  X96M_PROBE (0x48);                                // 'H' -- constructors done
 
   // Initialize MMU and Memory HOBs (Resource Descriptor HOBs)
   Status = MemoryPeim (UefiMemoryBase, FixedPcdGet32 (PcdSystemMemoryUefiRegionSize));
   ASSERT_EFI_ERROR (Status);
+  X96M_PROBE (0x49);                                // 'I' -- MMU configured
 
   // Initialize the Serial Port
   SerialPortInitialize ();

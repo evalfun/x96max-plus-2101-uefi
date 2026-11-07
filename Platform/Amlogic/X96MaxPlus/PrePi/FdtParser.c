@@ -9,6 +9,8 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/FdtLib.h>
 
+#include <MesonSm1.h>
+
 BOOLEAN
 FindMemnode (
   IN  VOID    *DeviceTreeBlob,
@@ -71,6 +73,20 @@ FindMemnode (
   *SystemMemorySize = Fdt32ToCpu (Prop[0]);
   if (SizeCells > 1) {
     *SystemMemorySize = (*SystemMemorySize << 32) | Fdt32ToCpu (Prop[1]);
+  }
+
+  //
+  // Board safety clamp.  Some distributor DTBs (Armbian/ophub s905x3 among
+  // them) describe /memory with a rounded-up size rather than the real DDR
+  // TOP; placing firmware structures above the end of DRAM ends the boot
+  // with a fault before any C code runs.  PrePi runs before the platform
+  // DTB normalisation, so clamp here against the board's authoritative
+  // constant ("/proc/iomem" System RAM top: 0xF4E5B000).
+  //
+  if (*SystemMemoryBase == 0) {
+    if (*SystemMemorySize > MESON_SM1_DRAM_TOP) {
+      *SystemMemorySize = MESON_SM1_DRAM_TOP;
+    }
   }
 
   return TRUE;

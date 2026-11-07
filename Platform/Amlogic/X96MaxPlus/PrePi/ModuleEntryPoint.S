@@ -9,7 +9,109 @@
 
 #include <AsmMacroLib.h>
 
+//
+// Debug probe: the Amlogic UART_AO_A data register.  The first-stage
+// bootloader has already programmed the console, so a plain MMIO byte
+// store is enough to leave a trace while the MMU/cache state is unproven.
+//
+//
+// Bare exception catcher.  16 EL2 vector entries, all pointing at one
+// handler that leaves an exclamation mark on the UART then tris.  If this
+// fires, we know the hang is an exception, not a spin.
+//
+  .align  11
+  ASM_PFX(x96_exception_vectors):
+    .rept  16
+    b      ASM_PFX(x96_exception_handler)
+    .endr
+    .rept  2
+    nop
+    .endr
+
+ASM_FUNC(x96_exception_handler)
+  ldr   x2, =0xFF803000
+  mov   w3, #0x21
+  str   w3, [x2]
+  mov   w3, #0x0d
+  str   w3, [x2]
+  mov   w3, #0x0a
+  str   w3, [x2]
+  mrs   x4, ESR_EL2
+  str   w4, [x2]
+  mrs   x4, FAR_EL2
+  str   w4, [x2]
+3:  b     3b
+
+  .macro  UARTPROBE ch
+    ldr   x2, =0xFF803000
+    mov   w3, #\ch
+    str   w3, [x2]
+    mov   w3, #0x0d
+    str   w3, [x2]
+    mov   w3, #0x0a
+    str   w3, [x2]
+  .endm
+
 ASM_FUNC(_ModuleEntryPoint)
+  UARTPROBE  0x40          // '@' -- entered the flat image entry
+  UARTPROBE  0x3f          // '?' -- build fingerprint
+
+  //
+  // Which core got here?  A secondary core walking through this code would
+  // corrupt shared state mid-run, which is exactly the shape of the hang
+  // after the H probe.
+  //
+  ldr   x2, =0xFF803000
+  mrs   x4, MPIDR_EL1
+  and   x4, x4, #0xff
+  add   x4, x4, #0x30
+  str   w4, [x2]           // core id as a digit
+  mov   w3, #0x0d
+  str   w3, [x2]
+  mov   w3, #0x0a
+  str   w3, [x2]
+
+  //
+  // Report the exception level the bootloader handed us.  Amlogic's
+  // legacy 2015 U-Boot runs at EL3 - unlike the ATF handoff the PrePi was
+  // written for - and the MMU setup later behaves differently there.
+  //
+  mrs   x4, CurrentEL
+  and   x4, x4, #0xc
+  cmp   x4, #0xc
+  b.ne  1f
+  UARTPROBE  0x33          // '3' => running at EL3
+1:
+  //
+  // Normalise the processor state the way U-Boot's cleanup_before_linux()
+  // does before handing off, so this path also works when the legacy
+  // Amlogic U-Boot simply jumps with its own caches and page tables live.
+  // (At EL3 skip: SCTLR_EL2 is not the controlling register there and the
+  // PrePi's own MMU code handles EL3.)
+  //
+  mrs   x4, CurrentEL
+  and   x4, x4, #0xc
+  cmp   x4, #0xc
+  b.eq  2f
+  mrs   x4, SCTLR_EL2
+  bic   x4, x4, #1         // M (MMU)
+  bic   x4, x4, #4         // C (data cache)
+  bic   x4, x4, #(1 << 12) // I (instruction cache)
+  msr   SCTLR_EL2, x4
+  dsb   sy
+  isb
+  tlbi  alle2is
+  dsb   sy
+  isb
+2:
+  //
+  // ARMv8 vector table: catch every synchronous/IRQ/FIQ/SError so the hang
+  // announces itself instead of dying silently.
+  //
+  adr   x5, ASM_PFX(x96_exception_vectors)
+  msr   VBAR_EL2, x5
+  isb
+
   //
   // The vendor BL31 argument registers are not a stable public contract.
   // The flat-image trampoline supplies the runtime image base in x1, so use
@@ -19,17 +121,21 @@ ASM_FUNC(_ModuleEntryPoint)
 
   mov   x28, x0             // preserve DTB pointer
   mov   x27, x1             // preserve base of image pointer
+  UARTPROBE  0x42          // 'B' -- image base captured
 
   // Enable Floating Point. This needs to be done before entering C code, which
   // may use FP/SIMD registers.
   bl    ArmEnableVFP
+  UARTPROBE  0x43          // 'C' -- VFP enabled
 
   bl    ASM_PFX(DiscoverDramFromDt)
+  UARTPROBE  0x44          // 'D' -- DRAM discovered
 
   // Get ID of this CPU in Multicore system
   bl    ASM_PFX(ArmReadMpidr)
   // Keep a copy of the MpId register value
   mov   x20, x0
+  UARTPROBE  0x45          // 'E' -- just before stack setup
 
 // Check if we can install the stack at the top of the System Memory or if we need
 // to install the stacks at the bottom of the Firmware Device (case the FD is located
@@ -98,6 +204,7 @@ _GetStackBase:
 
   // Set the frame pointer to NULL so any backtraces terminate here
   mov   x29, xzr
+  UARTPROBE  0x46          // 'F' -- stack ready, entering C
 
   // Jump to PrePiCore C code
   //    x0 = MpId

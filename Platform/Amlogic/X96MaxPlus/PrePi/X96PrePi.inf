@@ -31,6 +31,7 @@
   ArmPlatformPkg/ArmPlatformPkg.dec
   ArmVirtPkg/ArmVirtPkg.dec
   OvmfPkg/OvmfPkg.dec
+  Silicon/Amlogic/MesonSm1/MesonSm1.dec
 
 [LibraryClasses]
   ArmLib
