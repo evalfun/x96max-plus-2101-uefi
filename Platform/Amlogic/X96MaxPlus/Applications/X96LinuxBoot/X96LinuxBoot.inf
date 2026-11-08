@@ -31,6 +31,7 @@
   BaseMemoryLib
   MemoryAllocationLib
   DebugLib
+  HobLib
   ArmLib
   CacheMaintenanceLib
   FdtLib

@@ -4,6 +4,8 @@
 **/
 
 #include <Uefi.h>
+#include <Pi/PiBootMode.h>
+#include <Pi/PiHob.h>
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -15,9 +17,11 @@
 #include <Library/CacheMaintenanceLib.h>
 #include <Library/FdtLib.h>
 #include <Library/PcdLib.h>
+#include <Library/HobLib.h>
 
 #include <Guid/Fdt.h>
 #include <Guid/FdtHob.h>
+#include <Guid/HobList.h>
 #include <Guid/FileInfo.h>
 #include <Protocol/SimpleFileSystem.h>
 
@@ -222,10 +226,29 @@ PrepareFdt (
   Status = EfiGetSystemConfigurationTable (&gFdtTableGuid, &Source);
   if (EFI_ERROR (Status) || (Source == NULL) || (FdtCheckHeader (Source) != 0)) {
     //
-    // ...and fall back to the embedded FV copy.
+    // DxeCore published the original PrePi HOB list under gEfiHobListGuid;
+    // our PlatformPeiLib recorded the normalised FDT in a gFdtHobGuid HOB.
     //
+    VOID  *HobList;
+
+    Status = EfiGetSystemConfigurationTable (&gEfiHobListGuid, &HobList);
+    if (!EFI_ERROR (Status) && (HobList != NULL)) {
+        EFI_HOB_GUID_TYPE  *Hob;
+
+      Hob = GetFirstGuidHob (&gFdtHobGuid);
+      if (Hob != NULL) {
+        EFI_PHYSICAL_ADDRESS  HobVal;
+
+        CopyMem (&HobVal, GET_GUID_HOB_DATA (Hob), sizeof HobVal);
+        Source = (VOID *)(UINTN)HobVal;
+      }
+    }
+  }
+
+  if (EFI_ERROR (Status) || (Source == NULL) || (FdtCheckHeader (Source) != 0)) {
     Source = (VOID *)(UINTN)PcdGet64 (PcdDeviceTreeInitialBaseAddress);
   }
+
 
   if ((Source == NULL) || (FdtCheckHeader (Source) != 0)) {
     Print (L"X96Linux: no DeviceTree reachable (config table + FV probe failed)\n");
