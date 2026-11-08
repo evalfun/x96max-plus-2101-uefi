@@ -19,6 +19,93 @@ ASM_FUNC(X96LinuxBootHandoff)
   br    x8
 
 //
+// X96UartNibbles: print 16 hex nibbles of x16 via raw UART MMIO for the
+// "MMU off"-phase diagnostics.  No C libs, no stack writes.
+//
+ASM_FUNC(X96UartNibbles)
+  mov   x17, #60        // loop count 16 nibbles * ~4 ops
+  mov   x20, x16
+  mov   x19, #15
+.LNibLoop:
+  lsr   x18, x20, x19
+  and   x18, x18, #0xf
+  cmp   x18, #10
+  blo   .LNibIsDigit
+  add   x18, x18, #0x57
+  b     .LNibStore
+.LNibIsDigit:
+  add   x18, x18, #0x30
+.LNibStore:
+  ldr   x15, =0xFF803000
+  str   w18, [x15]
+  sub   x19, x19, #4
+  cmp   x19, #0
+  b.ge  .LNibLoop
+  ret
+
+//
+// X96LinuxFinal: the last-mile.  Prints "GO", the kernel entry and FDT
+// pointers through raw MMIO, dehydrates the CPU, prints "MMU off", and
+// branches with the arm64 boot protocol.  NEVER returns; no C.
+//
+// x0 = entry point
+// x1 = FDT pointer
+//
+ASM_FUNC(X96LinuxFinal)
+  stp   x0, x1, [sp, #-32]!
+  stp   x29, x30, [sp, #16]
+
+  // print "K" marker
+  mov   w17, #0x4B
+  ldr   x15, =0xFF803000
+  str   w17, [x15]
+  mov   w17, #0x0d
+  str   w17, [x15]
+  mov   w17, #0x0a
+  str   w17, [x15]
+
+  // kernel entry pointer hex
+  mov   x16, x0
+  bl    ASM_PFX(X96UartNibbles)
+  // "sp" between values
+  mov   w18, #0x2d
+  ldr   x15, =0xFF803000
+  str   w18, [x15]
+  // FDT pointer hex
+  mov   x16, x1
+  bl    X96UartNibbles
+  mov   w18, #0x0d
+  ldr   x15, =0xFF803000
+  str   w18, [x15]
+  mov   w18, #0x0a
+  str   w18, [x15]
+
+  ldp   x29, x30, [sp, #16]
+  ldp   x0, x1, [sp], #32
+
+  // dehydrate (reuse the per-EL asm)
+  bl    ASM_PFX(X96CpuDehydrate)
+
+  // print "M" marker (MMU off)
+  mov   w19, #0x4D
+  ldr   x15, =0xFF803000
+  str   w19, [x15]
+  mov   w19, #0x0d
+  str   w19, [x15]
+  mov   w19, #0x0a
+  str   w19, [x15]
+
+  // handoff: x8 = entry, x0 = FDT, x1..3=0
+  mov   x8, x0
+  mov   x0, x1
+  mov   x1, xzr
+  mov   x2, xzr
+  mov   x3, xzr
+  dsb   sy
+  isb
+  br    x8
+
+//
 // X96CpuDehydrate: unconditional, self-contained cleanup.  Reads the
 // CurrentEL, disables the D-cache / I-cache / MMU through the
 // corresponding EL's SCTLR, invalidates the TLB, and returns.

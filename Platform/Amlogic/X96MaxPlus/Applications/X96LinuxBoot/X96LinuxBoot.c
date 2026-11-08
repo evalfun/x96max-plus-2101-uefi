@@ -65,6 +65,13 @@ VOID
 EFIAPI
 X96CpuDehydrate (VOID);
 
+VOID
+EFIAPI
+X96LinuxFinal (
+  IN UINT64  Entry,
+  IN UINT64  Fdt
+  );
+
 STATIC
 EFI_STATUS
 ReadFileToTarget (
@@ -431,14 +438,11 @@ X96LinuxEntryPoint (
   InvalidateInstructionCache ();
   Print (L"X96Linux: [4/6..6/6] dehydrate (caches/TLB, per-EL asm)\n");
   X96CpuDehydrate ();
-  Print (L"X96Linux: dehydrated.\n");
-  Print (L"X96Linux: MMU off; branching to 0x%016llx with x0=FDT 0x%016llx...\n",
-         KernelBase, FdtBase);
 
   //
   // No return after this point.  Kernel boot at EL2, x0=FDT, x1..x3=0.
   //
-  X96LinuxBootHandoff ((UINT64)KernelBase, FdtBase);
+  X96LinuxFinal ((UINT64)KernelBase, FdtBase);
 
   return EFI_SUCCESS;  // never reached
 }
