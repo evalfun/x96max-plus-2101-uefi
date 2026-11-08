@@ -15,6 +15,7 @@
 #include <Library/PrintLib.h>
 #include <Library/PrePiHobListPointerLib.h>
 #include <Library/TimerLib.h>
+#include <Library/IoLib.h>
 #include <Library/PerformanceLib.h>
 #include <Library/CacheMaintenanceLib.h>
 
@@ -23,6 +24,8 @@
 #include <Library/ArmLib.h>
 
 #include "PrePi.h"
+
+#include <MesonSm1.h>
 
 VOID
 PrePiMain (
@@ -65,6 +68,76 @@ PrePiMain (
 
   // Initialize the Serial Port
   SerialPortInitialize ();
+
+  //
+  // CPU clock bring-up.  The factory boot chain leaves the CPU at XTAL
+  // (24 MHz) when handing off via `go`; mainline Linux runs this plate
+  // with sys_pll_dco = xtal(24 MHz) * 134 / 1 = 3216 MHz, post-divided /2
+  // -> 1608 MHz (the clock shown by /sys/kernel/debug/clk/clk_summary
+  // under Linux on this board).  Reproduce that exact, proven state so
+  // the firmware and any OS side of it runs at speed; the fields are
+  // en[28], rst[29], lock[31], m[7:0] = 134, n[14:10] = 1, postdiv[18:16]
+  // = 1 (/2) per the mainline meson g12a clock definitions.
+  //
+  {
+    UINT64  T0;
+    UINT64  T1;
+    UINTN   Index;
+    UINT32  Cntl0;
+
+    //
+    // Benchmark snippet: 16 no-op pairs add up to a fixed instruction
+    // count; the arch timer always ticks at 24 MHz, so elapsed ticks
+    // report the true core frequency regardless of register states.
+    //
+    __asm__ volatile ("mrs %0, cntpct_el0" : "=r" (T0));
+    for (Index = 0; Index < 4000000; Index++) {
+      __asm__ volatile ("nop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop");
+    }
+    __asm__ volatile ("mrs %0, cntpct_el0" : "=r" (T1));
+    DEBUG ((
+      DEBUG_INFO,
+      "X96M CPU bench pre : %d ticks (%d.%d MHz assuming 16 cycles/iter)\n",
+      (UINT32)(T1 - T0),
+      (UINT32)((UINT64)4000000 * 16 * 24 / (T1 - T0) / 1000),
+      (UINT32)((UINT64)4000000 * 16 * 24 / (T1 - T0) % 1000)
+      ));
+
+    Cntl0 = MmioRead32 (MESON_SM1_HHI_BASE + 0x2f4);
+    DEBUG ((DEBUG_INFO, "X96M SYS_PLL_CNTL0 pre  : 0x%08x\n", Cntl0));
+    DEBUG ((DEBUG_INFO, "X96M SYS_CPU_CLK_CNTL0 : 0x%08x\n", MmioRead32 (MESON_SM1_HHI_BASE + 0x19c)));
+
+    //
+    // rst=1, en=1, m=134, n=1, postdiv=1.
+    //
+    MmioWrite32 (MESON_SM1_HHI_BASE + 0x2f4, 0x20040486);
+    for (Index = 0; Index < 100000; Index++) {
+      Cntl0 = MmioRead32 (MESON_SM1_HHI_BASE + 0x2f4);
+      if ((Cntl0 & (1U << 31)) != 0) {
+        break;
+      }
+    }
+    //
+    // rst=0 (release), en stays set.  cpu_clk mux (Final_mux_sel, 0x19c
+    // bit 11) is already parked on sys_pll by the boot chain.
+    //
+    MmioWrite32 (MESON_SM1_HHI_BASE + 0x2f4, 0x10040486);
+
+    __asm__ volatile ("mrs %0, cntpct_el0" : "=r" (T0));
+    for (Index = 0; Index < 4000000; Index++) {
+      __asm__ volatile ("nop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop");
+    }
+    __asm__ volatile ("mrs %0, cntpct_el0" : "=r" (T1));
+    DEBUG ((
+      DEBUG_INFO,
+      "X96M CPU bench post: %d ticks (%d.%d MHz assuming 16 cycles/iter), CNTL0=0x%08x lock=%a\n",
+      (UINT32)(T1 - T0),
+      (UINT32)((UINT64)4000000 * 16 * 24 / (T1 - T0) / 1000),
+      (UINT32)((UINT64)4000000 * 16 * 24 / (T1 - T0) % 1000),
+      MmioRead32 (MESON_SM1_HHI_BASE + 0x2f4),
+      ((Cntl0 & (1U << 31)) != 0) ? "yes" : "NO"
+      ));
+  }
   CharCount = AsciiSPrint (
                 Buffer,
                 sizeof (Buffer),
