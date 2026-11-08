@@ -363,12 +363,22 @@ X96LinuxEntryPoint (
   }
   Print (L"X96Linux: FDT copy at 0x%llx OK.\n", FdtBase);
 
-  KernelBase = KERNEL_TARGET_BASE;
+  KernelBase = 0;
   Pages      = EFI_SIZE_TO_PAGES (KERNEL_MAX);
-  Status     = gBS->AllocatePages (AllocateAddress, EfiBootServicesData, Pages, &KernelBase);
+  Status     = gBS->AllocatePages (AllocateAnyPages, EfiLoaderData, Pages + 1, &KernelBase);
   if (EFI_ERROR (Status)) {
-    Print (L"X96Linux: kernel pages alloc: %r\n", Status);
+    Print (L"X96Linux: kernel any-page alloc: %r\n", Status);
     return EFI_SUCCESS;
+  }
+  Print (L"X96Linux: kernel raw alloc 0x%llx\n", (UINT64)KernelBase);
+  // round UP to a 2 MiB boundary and drop the extra leading page
+  {
+    EFI_PHYSICAL_ADDRESS  Aligned = (KernelBase + 0x1FFFFFULL) & ~0x1FFFFFULL;
+    UINTN                 ExtraPages = (UINTN)((Aligned - KernelBase) / EFI_PAGE_SIZE);
+    if (ExtraPages > 0) {
+      gBS->FreePages (KernelBase, ExtraPages);
+    }
+    KernelBase = Aligned;
   }
 
   Status = ReadFileToTarget (FileSystem, mKernelPath, KernelBase, KERNEL_MAX, &LoadedSize, TRUE);
