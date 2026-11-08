@@ -20,6 +20,8 @@
 #include <Library/HobLib.h>
 
 #include <Guid/Fdt.h>
+#include <Protocol/LoadedImage.h>
+#include <Protocol/SimpleFileSystem.h>
 #include <Guid/FdtHob.h>
 #include <Guid/HobList.h>
 #include <Guid/FileInfo.h>
@@ -48,6 +50,22 @@
 CHAR16  mKernelPath[]  = L"\\vmlinuz-6.6.74-happy-new-year";
 CHAR16  mInitrdPath[]  = L"\\initrd.img-6.6.74-happy-new-year";
 CHAR8   mCmdline[]     = "console=ttyAML0,115200n8 root=/dev/mmcblk1p2 rootwait rootfstype=ext4 rw loglevel=7";
+
+//
+// Optional command-line override, parsed from the UEFI Shell's
+// LoadedImage->LoadOptions when the app was started with arguments:
+//
+//   X96LinuxBoot.efi \vmlinuz-X \initrd.img-X root=/dev/sda1
+//
+// The first path (or the one containing "vmlinuz") selects the kernel
+// image, the second (containing "initrd"/"initramfs") the initrd, and
+// every other token is appended to the kernel command line.
+//
+STATIC CHAR16  mArgKernelPath[256];
+STATIC CHAR16  mArgInitrdPath[256];
+STATIC CHAR8   mArgCmdline[768];
+STATIC CHAR8   mBootCmdlineBuf[1024];
+STATIC CHAR8  *mBootCmdline = mCmdline;
 
 //
 // Handoff helper in X96LinuxBootJump.S.  C ABI: (x0 = entry point,
@@ -311,11 +329,11 @@ PrepareFdt (
     }
   }
 
-  CmdlineBytes = AsciiStrLen (mCmdline) + 1;   // FDT wants NUL-terminated ASCII bytes
-  if (FdtSetProp (Copy, Chosen, "bootargs", mCmdline, CmdlineBytes) != 0) {
+  CmdlineBytes = AsciiStrLen (mBootCmdline) + 1;   // FDT wants NUL-terminated ASCII bytes
+  if (FdtSetProp (Copy, Chosen, "bootargs", mBootCmdline, CmdlineBytes) != 0) {
     return EFI_DEVICE_ERROR;
   }
-  Print (L"X96Linux: bootargs set (%d bytes ascii): %a\n", CmdlineBytes, mCmdline);
+  Print (L"X96Linux: bootargs set (%d bytes ascii): %a\n", CmdlineBytes, mBootCmdline);
 
   FdtDelProp (Copy, Chosen, "linux,initrd-start");
   FdtDelProp (Copy, Chosen, "linux,initrd-end");
@@ -323,6 +341,219 @@ PrepareFdt (
   return EFI_SUCCESS;
 }
 
+//
+// Case-insensitive substring search over a bounded CHAR16 token.
+//
+STATIC
+UINTN
+X96Str16Sub (
+  IN CONST CHAR16  *Sub,
+  IN CONST CHAR16  *Tok,
+  IN UINTN          TokLen
+  )
+{
+  UINTN  SubLen = StrLen (Sub);
+
+  if (TokLen < SubLen) {
+    return (UINTN)-1;
+  }
+
+  for (UINTN  s = 0; s + SubLen <= TokLen; s++) {
+    UINTN  k;
+
+    for (k = 0; k < SubLen; k++) {
+      CHAR16  a = Tok[s + k];
+      CHAR16  b = Sub[k];
+      CHAR16  aa = (a >= L'A') && (a <= L'Z') ? a + 32 : a;
+      CHAR16  bb = (b >= L'A') && (b <= L'Z') ? b + 32 : b;
+
+      if (aa != bb) {
+        break;
+      }
+    }
+    if (k == SubLen) {
+      return s;
+    }
+  }
+
+  return (UINTN)-1;
+}
+
+STATIC
+VOID
+X96Copy16To (
+  OUT CHAR16    *Dst,
+  IN  UINTN      DstSize,
+  IN  CHAR16    *Tok,
+  IN  UINTN      TokLen
+  )
+{
+  UINTN  k;
+
+  if (TokLen >= DstSize) {
+    TokLen = DstSize - 1;
+  }
+  for (k = 0; k < TokLen; k++) {
+    Dst[k] = Tok[k];
+  }
+  Dst[k] = 0;
+}
+
+// Classify one CHAR16 token from the command line:
+//  - contains "vmlinuz"      -> kernel image path
+//  - contains "initrd"/"initramfs" or ends ".img" -> initrd path
+//  - starts with '\\' and uncategorised -> first-unknown = kernel, next = initrd
+//  - contains '='            -> kernel command line fragment
+//
+STATIC
+VOID
+X96TokenInto (
+  IN  CHAR16    *Tok,
+  IN  UINTN      TokLen,
+  IN  BOOLEAN    KernelTaken,
+  IN  BOOLEAN    InitrdTaken
+  )
+{
+  UINTN   j;
+  BOOLEAN HasEq  = FALSE;
+  BOOLEAN IsPath = (TokLen > 0) && (Tok[0] == L'\\');
+
+  for (j = 0; j < TokLen; j++) {
+    if ((Tok[j] == L'=') || (Tok[j] == L' ')) {
+      HasEq = TRUE;
+      break;
+    }
+  }
+
+  if (HasEq) {
+    // kernel command line fragment (ASCII only)
+    UINTN  k = AsciiStrLen (mArgCmdline);
+    UINTN  n;
+
+    if (k > 0) {
+      mArgCmdline[k++] = ' ';
+    }
+    for (n = 0; (n < TokLen) && (k < sizeof (mArgCmdline) - 1); n++) {
+      mArgCmdline[k++] = (CHAR8)Tok[n];
+    }
+    mArgCmdline[k] = 0;
+    return;
+  }
+
+  if ((j = X96Str16Sub (L"vmlinuz", Tok, TokLen)) != (UINTN)-1) {
+    X96Copy16To (mArgKernelPath, sizeof (mArgKernelPath), Tok, TokLen);
+    return;
+  }
+  if ((X96Str16Sub (L"initrd", Tok, TokLen) != (UINTN)-1) ||
+      (X96Str16Sub (L"initramfs", Tok, TokLen) != (UINTN)-1) ||
+      ((TokLen > 4) && (Tok[TokLen - 4] == L'.') &&
+       (Tok[TokLen - 3] == L'i') && (Tok[TokLen - 2] == L'm') &&
+       (Tok[TokLen - 1] == L'g'))) {
+    X96Copy16To (mArgInitrdPath, sizeof (mArgInitrdPath), Tok, TokLen);
+    return;
+  }
+
+  if (IsPath) {
+    if (!KernelTaken && (mArgKernelPath[0] == 0)) {
+      X96Copy16To (mArgKernelPath, sizeof (mArgKernelPath), Tok, TokLen);
+    } else if (!InitrdTaken && (mArgInitrdPath[0] == 0)) {
+      X96Copy16To (mArgInitrdPath, sizeof (mArgInitrdPath), Tok, TokLen);
+    }
+  }
+}
+
+//
+// Parse the UEFI Shell's LoadOptions (CHAR16, NUL-terminated) into
+// mArgKernelPath / mArgInitrdPath / mArgCmdline.  Also handles the
+// app name itself being present as the first option.
+//
+STATIC
+VOID
+X96ParseLoadOptions (
+  IN EFI_HANDLE  ImageHandle
+  )
+{
+  EFI_STATUS                  Status;
+  EFI_LOADED_IMAGE_PROTOCOL   *Li;
+  CHAR16                      *Opts;
+  UINTN                        Len;
+  UINTN                        i;
+
+  Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Li);
+  if (EFI_ERROR (Status) || (Li == NULL) || (Li->LoadOptionsSize == 0) || (Li->LoadOptions == NULL)) {
+    return;
+  }
+
+  Opts = (CHAR16 *)Li->LoadOptions;
+  Len  = Li->LoadOptionsSize / sizeof (CHAR16);
+
+  mArgKernelPath[0] = 0;
+  mArgInitrdPath[0] = 0;
+  mArgCmdline[0]    = 0;
+
+  i = 0;
+  //
+  // Skip the app name, if present (an "efi"-suffixed, non-path token).
+  //
+  while ((i < Len) && (Opts[i] != 0) && (Opts[i] == L' ')) {
+    i++;
+  }
+  if ((i < Len) && (Opts[i] != 0)) {
+    UINTN  Start = i;
+
+    while ((i < Len) && (Opts[i] != 0) && (Opts[i] != L' ')) {
+      i++;
+    }
+    if ((i > Start) && (i - Start > 4) && (Opts[i - 4] == L'.') &&
+        (i - 3 < Len) && ((Opts[i - 3] | 32) == L'e') &&
+        ((Opts[i - 2] | 32) == L'f') && ((Opts[i - 1] | 32) == L'i') && (Opts[Start] != L'\\')) {
+      // skip it
+    } else {
+      X96TokenInto (Opts + Start, i - Start, FALSE, FALSE);
+    }
+  }
+
+  while ((i < Len) && (Opts[i] != 0)) {
+    while ((i < Len) && (Opts[i] == L' ')) {
+      i++;
+    }
+    if ((i >= Len) || (Opts[i] == 0)) {
+      break;
+    }
+    {
+      UINTN  Start = i;
+
+      while ((i < Len) && (Opts[i] != 0) && (Opts[i] != L' ')) {
+        i++;
+      }
+      X96TokenInto (Opts + Start, i - Start, FALSE, FALSE);
+    }
+  }
+
+  //
+  // Compose the effective bootargs: console if the user did not supply
+  // one, user fragments, then the default root= if omitted.
+  //
+  if (mArgCmdline[0] != 0) {
+    if (AsciiStrStr (mArgCmdline, "console=") == NULL) {
+      AsciiStrCpyS (mBootCmdlineBuf, sizeof (mBootCmdlineBuf), "console=ttyAML0,115200n8 ");
+    }
+    else {
+      mBootCmdlineBuf[0] = 0;
+    }
+    AsciiStrCatS (mBootCmdlineBuf, sizeof (mBootCmdlineBuf), mArgCmdline);
+    if (AsciiStrStr (mArgCmdline, "root=") == NULL) {
+      AsciiStrCatS (mBootCmdlineBuf, sizeof (mBootCmdlineBuf), " root=/dev/mmcblk1p2 rootwait");
+    }
+    mBootCmdline = mBootCmdlineBuf;
+  }
+
+  Print (L"X96Linux: shell ctx: %ls\n", (mArgKernelPath[0] != 0) ? mArgKernelPath : mKernelPath);
+}
+
+//
+// Locate the disk that contains the boot data (Searching EfiSimpleFileSystem).
+//
 EFI_STATUS
 EFIAPI
 X96LinuxEntryPoint (
@@ -350,6 +581,8 @@ X96LinuxEntryPoint (
     Print (L"X96Linux: CurrentEL raw 0x%lx (EL%a)\n", CurEl,
            ((((CurEl >> 2) & 3) == 1) ? L"1" : (((CurEl >> 2) & 3) == 2) ? L"2" : L"3"));
   }
+
+  X96ParseLoadOptions (ImageHandle);
 
   FileSystem = FindBootFileSystem ();
   if (FileSystem == NULL) {
@@ -382,7 +615,7 @@ X96LinuxEntryPoint (
     KernelBase = Aligned;
   }
 
-  Status = ReadFileToTarget (FileSystem, mKernelPath, KernelBase, KERNEL_MAX, &LoadedSize, TRUE);
+  Status = ReadFileToTarget (FileSystem, (mArgKernelPath[0] != 0) ? mArgKernelPath : mKernelPath, KernelBase, KERNEL_MAX, &LoadedSize, TRUE);
   if (EFI_ERROR (Status)) {
     return EFI_SUCCESS;
   }
@@ -414,7 +647,7 @@ X96LinuxEntryPoint (
   }
   Print (L"X96Linux: initrd target 0x%llx\n", (UINT64)InitrdBase);
 
-  Status2 = ReadFileToTarget (FileSystem, mInitrdPath, InitrdBase, INITRD_MAX, &InitrdSize, FALSE);
+  Status2 = ReadFileToTarget (FileSystem, (mArgInitrdPath[0] != 0) ? mArgInitrdPath : mInitrdPath, InitrdBase, INITRD_MAX, &InitrdSize, FALSE);
   if (EFI_ERROR (Status2)) {
     Print (L"X96Linux: no initrd (%r); booting without it.\n", Status2);
     InitrdSize = 0;

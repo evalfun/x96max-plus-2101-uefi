@@ -37,6 +37,10 @@
   FdtLib
   PcdLib
 
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
 [Guids]
   gFdtHobGuid
   gFdtTableGuid
