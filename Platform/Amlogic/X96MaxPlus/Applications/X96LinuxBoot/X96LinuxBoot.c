@@ -211,12 +211,14 @@ PrepareFdt (
   OUT EFI_PHYSICAL_ADDRESS  *FdtTarget
   )
 {
-  EFI_STATUS  Status;
-  VOID        *Source;
-  VOID        *Copy;
-  INT32       Chosen;
-  UINTN       SizeWithSlack;
-  UINTN       CmdlineBytes;
+  EFI_STATUS            Status;
+  VOID                  *Source;
+  VOID                  *Copy;
+  INT32                 Chosen;
+  UINTN                 SizeWithSlack;
+  UINTN                 CmdlineBytes;
+
+  *FdtTarget = FDT_TARGET_BASE;
 
   //
   // Prefer the firmware-published DeviceTree configuration table - the
@@ -264,8 +266,21 @@ PrepareFdt (
                   FdtTarget
                   );
   if (EFI_ERROR (Status)) {
-    Print (L"X96Linux: FDT page alloc at 0x%llx: %r\n", *FdtTarget, Status);
-    return Status;
+    //
+    // The fixed target was already taken (or not available); fall back
+    // to any memory - the handoff passes whichever address was given.
+    //
+    Print (L"X96Linux: fixed FDT target busy, falling back\n");
+    Status = gBS->AllocatePages (
+                    AllocateAnyPages,
+                    EfiBootServicesData,
+                    EFI_SIZE_TO_PAGES (SizeWithSlack),
+                    FdtTarget
+                    );
+    if (EFI_ERROR (Status)) {
+      Print (L"X96Linux: FDT any-page alloc: %r\n", Status);
+      return Status;
+    }
   }
 
   Copy = (VOID *)(UINTN)*FdtTarget;
