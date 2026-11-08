@@ -446,9 +446,7 @@ X96LinuxEntryPoint (
   InvalidateDataCache ();
   Print (L"X96Linux: [3/6] I-cache invalidate\n");
   InvalidateInstructionCache ();
-  Print (L"X96Linux: [4/6..6/6] dehydrate (caches/TLB, per-EL asm)\n");
-  X96CpuDehydrate ();
-
+  Print (L"X96Linux: [4/6..6/6] final asm: dehydrate + branch (never returns)\n");
   //
   // No return after this point.  Kernel boot at EL2, x0=FDT, x1..x3=0.
   //

@@ -44,16 +44,16 @@ ASM_FUNC(X96UartNibbles)
   ret
 
 //
-// X96LinuxFinal: the last-mile.  Prints "GO", the kernel entry and FDT
-// pointers through raw MMIO, dehydrates the CPU, prints "MMU off", and
-// branches with the arm64 boot protocol.  NEVER returns; no C.
+// X96LinuxFinal: the last-mile.  Prints the kernel entry and FDT pointers
+// through raw MMIO, dehydrates the CPU INLINE (never a C return after the
+// MMU goes off), prints "M", and branches with the arm64 boot protocol.
+// NEVER returns to C past the first instruction.
 //
 // x0 = entry point
 // x1 = FDT pointer
 //
 ASM_FUNC(X96LinuxFinal)
   stp   x0, x1, [sp, #-32]!
-  stp   x29, x30, [sp, #16]
 
   // print "K" marker
   mov   w17, #0x4B
@@ -67,7 +67,7 @@ ASM_FUNC(X96LinuxFinal)
   // kernel entry pointer hex
   mov   x16, x0
   bl    ASM_PFX(X96UartNibbles)
-  // "sp" between values
+  // "-" between values
   mov   w18, #0x2d
   ldr   x15, =0xFF803000
   str   w18, [x15]
@@ -80,12 +80,47 @@ ASM_FUNC(X96LinuxFinal)
   mov   w18, #0x0a
   str   w18, [x15]
 
-  ldp   x29, x30, [sp, #16]
+  // "P" marker: entered the dehydrate phase
+  mov   w18, #0x50
+  ldr   x15, =0xFF803000
+  str   w18, [x15]
+  mov   w18, #0x0d
+  str   w18, [x15]
+  mov   w18, #0x0a
+  str   w18, [x15]
+
   ldp   x0, x1, [sp], #32
 
-  // dehydrate (reuse the per-EL asm)
-  bl    ASM_PFX(X96CpuDehydrate)
-
+  // dehydrate INLINE, per-EL; no bl/ret, no C from here on
+  mrs   x16, currentel
+  cmp   x16, #0x8
+  b.eq  2f
+  b.lt  1f
+  b     3f                 // EL3: hand off untouched (never expected)
+1: // EL1
+  mrs   x17, sctlr_el1
+  bic   x17, x17, #1         // M
+  bic   x17, x17, #4         // C (D-cache)
+  bic   x17, x17, #(1 << 12) // I
+  msr   sctlr_el1, x17
+  dsb   sy
+  isb
+  tlbi  vmalle1
+  dsb   sy
+  isb
+  b     3f
+2: // EL2
+  mrs   x17, sctlr_el2
+  bic   x17, x17, #1
+  bic   x17, x17, #4
+  bic   x17, x17, #(1 << 12)
+  msr   sctlr_el2, x17
+  dsb   sy
+  isb
+  tlbi  alle2
+  dsb   sy
+  isb
+3:
   // print "M" marker (MMU off)
   mov   w19, #0x4D
   ldr   x15, =0xFF803000
@@ -101,6 +136,7 @@ ASM_FUNC(X96LinuxFinal)
   mov   x1, xzr
   mov   x2, xzr
   mov   x3, xzr
+  msr   daifset, #0xF
   dsb   sy
   isb
   br    x8
