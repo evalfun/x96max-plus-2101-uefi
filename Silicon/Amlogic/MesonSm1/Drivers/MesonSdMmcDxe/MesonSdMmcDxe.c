@@ -649,6 +649,8 @@ typedef struct {
   UINT32  EchoR0;       // CMD8 echo word of the locked phase
   UINT8   Csd[16];      // raw CSD as captured from CMD9 (R2)
   UINT32  Ocr;          // ACMD41 OCR word
+  UINT32  Attempts;     // CMD8 probes issued by the tuner
+  UINT32  LastStatus;   // EFI_STATUS of the last CMD8 probe
 } X96_SD_DIAG;
 
 STATIC X96_SD_DIAG  mSdDiag;
@@ -664,8 +666,8 @@ MesonPublishSdDiag (
          L"X96SdDiag",
          &mX96SdDiagGuid,
          EFI_VARIABLE_BOOTSERVICE_ACCESS,
-         sizeof (mSdDiag.Csd) + 3 * sizeof (UINT32),
-         &mSdDiag.Tuned
+         sizeof (mSdDiag),
+         &mSdDiag
          );
 }
 
@@ -686,12 +688,20 @@ MesonTuneSdIdentificationClock (
     DEBUG ((DEBUG_ERROR, "MesonMMC@%lx: SD tuning CMD0 failed\n", Host->Base));
   }
 
+  ZeroMem (&mSdDiag, sizeof (mSdDiag));
+  mSdDiag.Magic   = 0x21583936;
+  mSdDiag.Tuned   = 0;
+  mSdDiag.ClockHz = IDENTIFICATION_CLOCK;
+  MesonPublishSdDiag ();
+
   Tuned = FALSE;
   for (ClockIdx = 0; !Tuned && (ClockIdx < ARRAY_SIZE (Clocks)); ClockIdx++) {
     for (Co = 0; !Tuned && (Co < 4); Co++) {
       for (Tx = 0; !Tuned && (Tx < 4); Tx++) {
         MesonSetClockPhase (Host, Clocks[ClockIdx], Co, Tx);
         Status = MesonExecuteCommand (Host, MMC_CMD8, 0x1AA, NULL, 0, FALSE);
+        mSdDiag.Attempts++;
+        mSdDiag.LastStatus = (UINT32)Status;
         if (!EFI_ERROR (Status) && (((Host->Response[0] >> 8) & 0xFF) == 0xAA)) {
           Tuned              = TRUE;
           mSdDiag.Tuned      = 1;
@@ -699,7 +709,7 @@ MesonTuneSdIdentificationClock (
           mSdDiag.Tx         = Tx;
           mSdDiag.ClockHz    = Clocks[ClockIdx];
           mSdDiag.EchoR0     = Host->Response[0];
-          mSdDiag.Magic      = 0x21583936;
+          mSdDiag.Magic        = 0x21583936;
           MesonPublishSdDiag ();
           DEBUG ((
             DEBUG_INFO,
@@ -722,6 +732,7 @@ MesonTuneSdIdentificationClock (
     MesonSetClockPhase (Host, IDENTIFICATION_CLOCK, 2, 0);
   }
 
+  MesonPublishSdDiag ();
   return Tuned;
 }
 

@@ -1307,9 +1307,11 @@ PlatformBootManagerAfterConsole (
   STATIC EFI_GUID  X96SdDiagGuid = {
     0x25b7b0e4, 0x8c11, 0x435e, { 0x9d, 0x7b, 0x62, 0xef, 0xf9, 0x77, 0xd1, 0x72 }
   };
-  UINT8                                Diag[36];
+  UINT8                                Diag[96];
   UINTN                                DiagSize;
-  UINTN                                DiagIdx;
+  UINT32                               Attempts;
+  UINT32                               LastStatus;
+  UINT32                               Csd[4];
   UINT32                               ClockHz;
   UINT32                               Echo;
 
@@ -1323,19 +1325,24 @@ PlatformBootManagerAfterConsole (
   if (!EFI_ERROR (DiagStatus)) {
     ClockHz = Diag[4] | (Diag[5] << 8) | (Diag[6] << 16) | ((UINT32)Diag[7] << 24);
     Echo    = Diag[8] | (Diag[9] << 8) | (Diag[10] << 16) | ((UINT32)Diag[11] << 24);
+    Attempts   = Diag[36] | (Diag[37] << 8) | (Diag[38] << 16) | ((UINT32)Diag[39] << 24);
+    LastStatus = Diag[40] | (Diag[41] << 8) | (Diag[42] << 16) | ((UINT32)Diag[43] << 24);
     Print (
-      L"X96 SD diag: tuned=%u co=%u tx=%u clk=%uHz echo=%08x\n",
+      L"X96 SD diag: tuned=%u co=%u tx=%u clk=%uHz attempts=%u last-status=0x%x echo=%08x\n",
       Diag[0],
       Diag[1],
       Diag[2],
       ClockHz,
+      Attempts,
+      LastStatus,
       Echo
       );
-    Print (L"X96 SD CSD:");
-    for (DiagIdx = 12; (DiagIdx < DiagSize) && (DiagIdx < 12 + 16); DiagIdx++) {
-      Print (L" %02x", Diag[DiagIdx]);
-    }
-    Print (L"\n");
+    CopyMem (Csd, &Diag[12], sizeof (Csd));
+    Print (
+      L"X96 SD CSD: %016x %016x\n",
+      ((UINT64)Csd[1] << 32) | Csd[0],
+      ((UINT64)Csd[3] << 32) | Csd[2]
+      );
   }
 
   EFI_STATUS                    Status;
