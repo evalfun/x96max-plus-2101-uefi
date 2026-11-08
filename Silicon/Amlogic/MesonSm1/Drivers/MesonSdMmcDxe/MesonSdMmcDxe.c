@@ -38,6 +38,7 @@
 #define   CLK_MAX_DIV        63U
 #define   CLK_SRC_24M        (0U << 6)
 #define   CLK_SRC_DIV2       (1U << 6)
+#define   CLK_CO_PHASE_270   (3U << 8)
 #define   CLK_CO_PHASE_180   (2U << 8)
 #define   CLK_TX_PHASE_000   (0U << 10)
 
@@ -517,10 +518,23 @@ MesonSetClock (
 
   Divider = (SourceHz + RequestedHz - 1) / RequestedHz;
   Divider = MIN (MAX (Divider, 1U), CLK_MAX_DIV);
-  MmioWrite32 (
-    Host->Base + SD_EMMC_CLOCK,
-    CLK_CO_PHASE_180 | CLK_TX_PHASE_000 | Source | Divider
-    );
+  //
+  // Mainline U-Boot's meson driver documents that SM1 sampling degrades
+  // over ~50 MHz with the 180-degree data phase and prefers 270.  The eMMC
+  // host keeps its proven 180; the SD slot (the per-unit flaky path)
+  // adopts 270 above the identification clock.
+  //
+  if (!Host->IsEmmc && (RequestedHz > 16000000U)) {
+    MmioWrite32 (
+      Host->Base + SD_EMMC_CLOCK,
+      CLK_CO_PHASE_270 | CLK_TX_PHASE_000 | Source | Divider
+      );
+  } else {
+    MmioWrite32 (
+      Host->Base + SD_EMMC_CLOCK,
+      CLK_CO_PHASE_180 | CLK_TX_PHASE_000 | Source | Divider
+      );
+  }
 }
 
 STATIC
