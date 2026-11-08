@@ -171,6 +171,16 @@
       BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
   }
   MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
+  #
+  # CapsuleRuntimeDxe supplies the Capsule Arch Protocol that DxeCore
+  # requires before handing off to BDS.  With no FMP-stack and no flash
+  # persistence the UpdateCapsule() service simply reports unsupported; the
+  # protocol presence is what matters.
+  #
+  MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf {
+    <LibraryClasses>
+      CapsuleLib|MdeModulePkg/Library/DxeCapsuleLibNull/DxeCapsuleLibNull.inf
+  }
   MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
   MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   MdeModulePkg/Universal/Metronome/Metronome.inf
