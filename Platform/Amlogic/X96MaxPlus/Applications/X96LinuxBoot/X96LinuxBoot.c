@@ -68,7 +68,8 @@ ReadFileToTarget (
   IN CHAR16                           *Path,
   IN EFI_PHYSICAL_ADDRESS             Target,
   IN UINTN                            MaxSize,
-  OUT UINTN                           *LoadedSize
+  OUT UINTN                           *LoadedSize,
+  IN BOOLEAN                          CheckMagic
   )
 {
   EFI_STATUS         Status;
@@ -126,7 +127,9 @@ ReadFileToTarget (
     return EFI_LOAD_ERROR;
   }
 
-  if (ReadUnaligned32 ((UINT32 *)(Header + ARM64_IMAGE_MAGIC_OFFSET)) != ARM64_IMAGE_MAGIC) {
+  if (CheckMagic &&
+      (ReadUnaligned32 ((UINT32 *)(Header + ARM64_IMAGE_MAGIC_OFFSET)) != ARM64_IMAGE_MAGIC))
+  {
     Print (L"X96Linux: %s is not an arm64 Image.\n", Path);
     FreePool (FileInfo);
     File->Close (File);
@@ -351,7 +354,7 @@ X96LinuxEntryPoint (
     return EFI_SUCCESS;
   }
 
-  Status = ReadFileToTarget (FileSystem, mKernelPath, KernelBase, KERNEL_MAX, &LoadedSize);
+  Status = ReadFileToTarget (FileSystem, mKernelPath, KernelBase, KERNEL_MAX, &LoadedSize, TRUE);
   if (EFI_ERROR (Status)) {
     return EFI_SUCCESS;
   }
@@ -361,7 +364,13 @@ X96LinuxEntryPoint (
   CopyMem ((VOID *)&ImageSize, Header + ARM64_IMAGE_SIZE_OFF, sizeof ImageSize);
   DEBUG ((DEBUG_INFO, "X96Linux: kernel at 0x%016llx: size 0x%lx\n", KernelBase, ImageSize));
   Print (L"X96Linux: kernel at 0x%016llx size 0x%lx\n", KernelBase, ImageSize);
-  Print (L"X96Linux: text_offset 0x%lx, entry = 0x%016llx\n", TextOffset, (UINT64)KernelBase + TextOffset);
+  Print (L"X96Linux: text_offset 0x%lx, entry 0x%016llx (image base)\n", TextOffset, KernelBase);
+  //
+  // booti semantics: the whole Image lives at a 2MiB-aligned base and the
+  // branch goes to the Image's first byte; text_offset only influences
+  // where u-boot relocates it.  Our copy IS at those bytes, so branch
+  // there.  The FDT pointer goes in x0, x1..x3 zeroed in the asm.
+  //
 
   InitrdBase = INITRD_TARGET_BASE;
   Pages      = EFI_SIZE_TO_PAGES (INITRD_MAX);
@@ -377,7 +386,7 @@ X96LinuxEntryPoint (
   }
   Print (L"X96Linux: initrd target 0x%llx\n", (UINT64)InitrdBase);
 
-  Status2 = ReadFileToTarget (FileSystem, mInitrdPath, InitrdBase, INITRD_MAX, &InitrdSize);
+  Status2 = ReadFileToTarget (FileSystem, mInitrdPath, InitrdBase, INITRD_MAX, &InitrdSize, FALSE);
   if (EFI_ERROR (Status2)) {
     Print (L"X96Linux: no initrd (%r); booting without it.\n", Status2);
     InitrdSize = 0;
@@ -414,7 +423,7 @@ X96LinuxEntryPoint (
   //
   // No return after this point.  Kernel boot at EL2, x0=FDT, x1..x3=0.
   //
-  X96LinuxBootHandoff ((UINT64)KernelBase + TextOffset, FdtBase);
+  X96LinuxBootHandoff ((UINT64)KernelBase, FdtBase);
 
   return EFI_SUCCESS;  // never reached
 }
