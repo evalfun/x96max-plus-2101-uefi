@@ -1303,6 +1303,41 @@ PlatformBootManagerAfterConsole (
   VOID
   )
 {
+  EFI_STATUS                           DiagStatus;
+  STATIC EFI_GUID  X96SdDiagGuid = {
+    0x25b7b0e4, 0x8c11, 0x435e, { 0x9d, 0x7b, 0x62, 0xef, 0xf9, 0x77, 0xd1, 0x72 }
+  };
+  UINT8                                Diag[36];
+  UINTN                                DiagSize;
+  UINTN                                DiagIdx;
+  UINT32                               ClockHz;
+  UINT32                               Echo;
+
+  //
+  // The SD host exported its identification diagnostics as a boot-services
+  // variable; print them on the local console (serial and HDMI) - the only
+  // observable path on serial-less units.
+  //
+  DiagSize = sizeof (Diag);
+  DiagStatus = gRT->GetVariable (L"X96SdDiag", &X96SdDiagGuid, NULL, &DiagSize, Diag);
+  if (!EFI_ERROR (DiagStatus)) {
+    ClockHz = Diag[4] | (Diag[5] << 8) | (Diag[6] << 16) | ((UINT32)Diag[7] << 24);
+    Echo    = Diag[8] | (Diag[9] << 8) | (Diag[10] << 16) | ((UINT32)Diag[11] << 24);
+    Print (
+      L"X96 SD diag: tuned=%u co=%u tx=%u clk=%uHz echo=%08x\n",
+      Diag[0],
+      Diag[1],
+      Diag[2],
+      ClockHz,
+      Echo
+      );
+    Print (L"X96 SD CSD:");
+    for (DiagIdx = 12; (DiagIdx < DiagSize) && (DiagIdx < 12 + 16); DiagIdx++) {
+      Print (L" %02x", Diag[DiagIdx]);
+    }
+    Print (L"\n");
+  }
+
   EFI_STATUS                    Status;
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
   UINTN                         FirmwareVerLength;

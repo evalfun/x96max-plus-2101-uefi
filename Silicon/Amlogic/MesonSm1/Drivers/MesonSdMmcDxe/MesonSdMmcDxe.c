@@ -22,6 +22,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/TimerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
 
 #include <Protocol/DevicePath.h>
 #include <Protocol/MmcHost.h>
@@ -565,6 +566,153 @@ MesonSetBusWidth (
 
 STATIC
 EFI_STATUS
+MesonExecuteCommand (
+  IN MESON_MMC_HOST  *Host,
+  IN MMC_CMD         Cmd,
+  IN UINT32          Argument,
+  IN VOID            *Buffer OPTIONAL,
+  IN UINTN           Length,
+  IN BOOLEAN         Write
+  );
+
+STATIC
+VOID
+MesonSetClockPhase (
+  IN MESON_MMC_HOST  *Host,
+  IN UINT32          RequestedHz,
+  IN UINT32          CoPhase,
+  IN UINT32          TxPhase
+  )
+{
+  UINT32  Divider;
+  UINT32  Source;
+  UINT32  SourceHz;
+
+  RequestedHz = MIN (RequestedHz, MAX_TRANSFER_CLOCK);
+  if (RequestedHz > 16000000U) {
+    SourceHz = SD_EMMC_CLKSRC_DIV2;
+    Source   = CLK_SRC_DIV2;
+  } else {
+    SourceHz = SD_EMMC_CLKSRC_24M;
+    Source   = CLK_SRC_24M;
+  }
+
+  Divider = (SourceHz + RequestedHz - 1) / RequestedHz;
+  Divider = MIN (MAX (Divider, 1U), CLK_MAX_DIV);
+  MmioWrite32 (
+    Host->Base + SD_EMMC_CLOCK,
+    ((CoPhase & 0x3U) << 8) | ((TxPhase & 0x3U) << 10) | Source | Divider
+    );
+}
+
+/**
+  Search for an SD card sampling phase that yields correct responses.
+
+  Same board family, different silicon lots (and different board wiring of
+  the SD slot) land on different pad delays; a fixed phase that works on
+  one X96 Max+ reads corrupted CSD/OCR data on another (block size 128,
+  nonsense capacity, garbage media id).  Vendor U-Boot handles this by
+  redoing co-phase/tx-delay at every boot (aml_sd_retry_refix).  Mirror
+  that: lock the phase via CMD8 (arg 0x1AA), whose R7 response echoes the
+  argument back exactly - the strictest sampling test available during
+  identification - and fall back to a slower clock on failure.
+**/
+//
+// SD identification diagnostics, exported as a boot-services variable so a
+// serial-less box can still report what the card identification observed
+// (the BDS code and the Shell's dmpstore both print it).
+//
+STATIC EFI_GUID  mX96SdDiagGuid =
+  { 0x25b7b0e4, 0x8c11, 0x435e, { 0x9d, 0x7b, 0x62, 0xef, 0xf9, 0x77, 0xd1, 0x72 } };
+
+typedef struct {
+  UINT32  Magic;        // 'X96!' = 0x21583936
+  UINT8   Tuned;        // phase search locked
+  UINT8   Co;
+  UINT8   Tx;
+  UINT8   Pad;
+  UINT32  ClockHz;      // identification clock in use
+  UINT32  EchoR0;       // CMD8 echo word of the locked phase
+  UINT8   Csd[16];      // raw CSD as captured from CMD9 (R2)
+  UINT32  Ocr;          // ACMD41 OCR word
+} X96_SD_DIAG;
+
+STATIC X96_SD_DIAG  mSdDiag;
+STATIC BOOLEAN      mSdDiagCsdCaptured;
+
+STATIC
+VOID
+MesonPublishSdDiag (
+  VOID
+  )
+{
+  gRT->SetVariable (
+         L"X96SdDiag",
+         &mX96SdDiagGuid,
+         EFI_VARIABLE_BOOTSERVICE_ACCESS,
+         sizeof (mSdDiag.Csd) + 3 * sizeof (UINT32),
+         &mSdDiag.Tuned
+         );
+}
+
+STATIC
+BOOLEAN
+MesonTuneSdIdentificationClock (
+  IN MESON_MMC_HOST  *Host
+  )
+{
+  STATIC CONST UINT32  Clocks[] = { IDENTIFICATION_CLOCK, 200000 };
+  EFI_STATUS  Status;
+  BOOLEAN     Tuned;
+  UINTN       ClockIdx;
+  UINTN       Co;
+  UINTN       Tx;
+
+  if (MesonExecuteCommand (Host, MMC_CMD0, 0, NULL, 0, FALSE) != EFI_SUCCESS) {
+    DEBUG ((DEBUG_ERROR, "MesonMMC@%lx: SD tuning CMD0 failed\n", Host->Base));
+  }
+
+  Tuned = FALSE;
+  for (ClockIdx = 0; !Tuned && (ClockIdx < ARRAY_SIZE (Clocks)); ClockIdx++) {
+    for (Co = 0; !Tuned && (Co < 4); Co++) {
+      for (Tx = 0; !Tuned && (Tx < 4); Tx++) {
+        MesonSetClockPhase (Host, Clocks[ClockIdx], Co, Tx);
+        Status = MesonExecuteCommand (Host, MMC_CMD8, 0x1AA, NULL, 0, FALSE);
+        if (!EFI_ERROR (Status) && (((Host->Response[0] >> 8) & 0xFF) == 0xAA)) {
+          Tuned              = TRUE;
+          mSdDiag.Tuned      = 1;
+          mSdDiag.Co         = Co;
+          mSdDiag.Tx         = Tx;
+          mSdDiag.ClockHz    = Clocks[ClockIdx];
+          mSdDiag.EchoR0     = Host->Response[0];
+          mSdDiag.Magic      = 0x21583936;
+          MesonPublishSdDiag ();
+          DEBUG ((
+            DEBUG_INFO,
+            "MesonMMC@%lx: SD phase locked co=%u tx=%u clk=%uHz\n",
+            Host->Base,
+            Co,
+            Tx,
+            Clocks[ClockIdx]
+            ));
+        }
+      }
+    }
+  }
+
+  if (!Tuned) {
+    //
+    // No phase produced a valid echo (or the card predates CMD8).  Leave
+    // the driver's proven default phase in place.
+    //
+    MesonSetClockPhase (Host, IDENTIFICATION_CLOCK, 2, 0);
+  }
+
+  return Tuned;
+}
+
+STATIC
+EFI_STATUS
 MesonHardwareInit (
   IN MESON_MMC_HOST  *Host
   )
@@ -596,7 +744,18 @@ MesonHardwareInit (
   //
   MesonSetClock (Host, IDENTIFICATION_CLOCK);
   ArmDataSynchronizationBarrier ();
-  DEBUG ((DEBUG_INFO, "MesonMMC: %a identification clock set\n", Host->IsEmmc ? "eMMC" : "SD"));
+  if (!Host->IsEmmc) {
+    //
+    // SD only: search the sampling phase; eMMC keeps its proven fixed phase.
+    //
+    if (!MesonTuneSdIdentificationClock (Host)) {
+      DEBUG ((DEBUG_ERROR, "MesonMMC: SD phase search produced no echo; using 180/000\n"));
+    } else {
+      DEBUG ((DEBUG_INFO, "MesonMMC: SD identification clock set (tuned)\n"));
+    }
+  } else {
+    DEBUG ((DEBUG_INFO, "MesonMMC: eMMC identification clock set\n"));
+  }
   MmioWrite32 (Host->Base + SD_EMMC_STATUS, STATUS_CLEAR_MASK);
   DEBUG ((DEBUG_INFO, "MesonMMC: %a status cleared\n", Host->IsEmmc ? "eMMC" : "SD"));
   MmioWrite32 (Host->Base + SD_EMMC_IRQ_EN, 0);
@@ -755,6 +914,18 @@ MesonExecuteCommand (
   Host->Response[1] = MmioRead32 (Host->Base + SD_EMMC_CMD_RSP1);
   Host->Response[2] = MmioRead32 (Host->Base + SD_EMMC_CMD_RSP2);
   Host->Response[3] = MmioRead32 (Host->Base + SD_EMMC_CMD_RSP3);
+
+  if (!Host->IsEmmc && !mSdDiagCsdCaptured) {
+    if (Index == 8) {
+      mSdDiag.EchoR0 = Host->Response[0];
+    } else if (Index == 41) {
+      mSdDiag.Ocr    = Host->Response[0];
+    } else if (Index == 9) {
+      CopyMem (mSdDiag.Csd, &Host->Response[0], sizeof (mSdDiag.Csd));
+      mSdDiagCsdCaptured = TRUE;
+      MesonPublishSdDiag ();
+    }
+  }
 
   if ((Buffer != NULL) && !Write) {
     InvalidateDataCacheRange (Buffer, Length);
