@@ -408,17 +408,25 @@ X96LinuxEntryPoint (
     }
   }
 
-  Print (L"X96Linux: Disabling caches/MMU and jumping at EL2...\n");
-
+  Print (L"X96Linux: cleanup-before-linux (EL2)...\n");
   //
-  // Cleanup-before-linux.  Cache maintenance first, then gate flip.
+  // Cleanup-before-linux.  Each step is individually announced: if anything
+  // raises an exception the last printed step names the offender.
   //
+  Print (L"X96Linux: [1/6] write-back invalidate D-cache\n");
   WriteBackInvalidateDataCache ();
+  Print (L"X96Linux: [2/6] D-cache invalidate\n");
   InvalidateDataCache ();
+  Print (L"X96Linux: [3/6] I-cache invalidate\n");
   InvalidateInstructionCache ();
+  Print (L"X96Linux: [4/6] D-cache off\n");
   ArmDisableDataCache ();
+  Print (L"X96Linux: [5/6] I-cache off\n");
   ArmDisableInstructionCache ();
+  Print (L"X96Linux: [6/6] MMU off, TLB invalidating...\n");
   ArmDisableMmu ();
+  Print (L"X96Linux: MMU off; branching to 0x%016llx with x0=FDT 0x%016llx...\n",
+         KernelBase, FdtBase);
 
   //
   // No return after this point.  Kernel boot at EL2, x0=FDT, x1..x3=0.
