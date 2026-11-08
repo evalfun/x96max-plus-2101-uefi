@@ -399,6 +399,27 @@ X96Copy16To (
   Dst[k] = 0;
 }
 
+//
+// Convert a host (little-endian) UINT64 into FDT-property byte order
+// (big-endian per the device-tree specification).
+//
+STATIC
+UINT64
+FdtHostToBe64 (
+  UINT64  v
+  )
+{
+  UINT64  r = 0;
+  UINTN   i;
+
+  for (i = 0; i < 8; i++) {
+    r = (r << 8) | (v & 0xff);
+    v >>= 8;
+  }
+
+  return r;
+}
+
 // Classify one CHAR16 token from the command line:
 //  - contains "vmlinuz"      -> kernel image path
 //  - contains "initrd"/"initramfs" or ends ".img" -> initrd path
@@ -654,18 +675,21 @@ X96LinuxEntryPoint (
   } else {
     //
     // Add the initrd memory ranges to the FDT's "/chosen" so the kernel
-    // sees them (booti boot protocol)
+    // sees them (booti boot protocol).  FDT property data is big-endian
+    // per the device-tree spec: writing the host (LE) bytes verbatim
+    // makes the kernel read 0x1500000000 instead of 0x15000000.
     //
     VOID    *FdtCombo = (VOID *)(UINTN)FdtBase;
     INT32   Chosen;
-    UINT64  StartVal = InitrdBase;
-    UINT64  EndVal   = InitrdBase + InitrdSize;
+    UINT64  StartVal = FdtHostToBe64 (InitrdBase);
+    UINT64  EndVal   = FdtHostToBe64 (InitrdBase + InitrdSize);
 
     Chosen = FdtPathOffset (FdtCombo, "/chosen");
     if (Chosen >= 0) {
       FdtSetProp (FdtCombo, Chosen, "linux,initrd-start", &StartVal, sizeof StartVal);
       FdtSetProp (FdtCombo, Chosen, "linux,initrd-end", &EndVal, sizeof EndVal);
-      Print (L"X96Linux: initrd at 0x%llx - 0x%llx\n", StartVal, EndVal);
+      Print (L"X96Linux: initrd at 0x%llx - 0x%llx (BE props)\n",
+             InitrdBase, InitrdBase + InitrdSize);
     }
   }
 
