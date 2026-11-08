@@ -200,6 +200,11 @@
   # Storage: SD (controller on 0xFFE05000) + eMMC (0xFFE07000, read access
   # only -- the firmware never programs the eMMC of this box) + USB.
   #
+  #
+  # Display: SM1 HDMI GOP (firmware framebuffer + EDID; VPU/encoder cold
+  # bring-up + Linux simple-framebuffer handoff).
+  #
+  Platform/Amlogic/X96MaxPlus/Drivers/MesonDisplayDxe/MesonDisplayDxe.inf
   Silicon/Amlogic/MesonSm1/Drivers/MesonSdMmcDxe/MesonSdMmcDxe.inf
   EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
   Silicon/Amlogic/MesonSm1/Drivers/MesonUsbDxe/MesonUsbDxe.inf

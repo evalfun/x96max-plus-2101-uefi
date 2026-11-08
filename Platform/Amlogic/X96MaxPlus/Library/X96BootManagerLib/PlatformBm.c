@@ -785,6 +785,12 @@ X96BootDescriptionHandler (
   return AllocateCopyPool (StrSize (Name), Name);
 }
 
+STATIC
+VOID
+X96RegisterLinuxLoaderOption (
+  VOID
+  );
+
 VOID
 EFIAPI
 PlatformBootManagerBeforeConsole (
@@ -1501,6 +1507,135 @@ PlatformBootManagerAfterConsole (
     //
     EfiBootManagerConnectAllDefaultConsoles ();
     EfiBootManagerRefreshAllBootOption ();
+  }
+
+  //
+  // Zero-touch Linux boot: register \X96LinuxBoot.efi (if present on an
+  // ESP) at the front of the boot order.
+  //
+  X96RegisterLinuxLoaderOption ();
+}
+
+//
+// Register the booti-style Linux loader living on the ESP so that a
+// cold boot turns into Linux without a keyboard: it lands first in the
+// boot order and BDS auto-boots it within the timeout.  If the loader
+// is missing (or returns without handoff), BDS falls back to the rest
+// of the boot order (GRUB, eMMC chain...).  ESC still reaches the menu.
+//
+STATIC
+VOID
+X96RegisterLinuxLoaderOption (
+  VOID
+  )
+{
+  STATIC CONST CHAR16           *LoaderPath = L"\\X96LinuxBoot.efi";
+  EFI_STATUS                     Status;
+  EFI_HANDLE                    *SfsHandles;
+  EFI_HANDLE                    *SfsHandlesCopy;
+  UINTN                          SfsCount;
+  UINTN                          Index;
+  EFI_DEVICE_PATH_PROTOCOL      *DevicePath;
+  EFI_BOOT_MANAGER_LOAD_OPTION   Option;
+  EFI_BOOT_MANAGER_LOAD_OPTION  *BootOptions;
+  UINTN                          BootOptionCount;
+  EFI_INPUT_KEY                  Key;
+
+  SfsHandles = NULL;
+  DevicePath = NULL;
+
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiSimpleFileSystemProtocolGuid,
+                  NULL,
+                  &SfsCount,
+                  &SfsHandles
+                  );
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  SfsHandlesCopy = SfsHandles;
+  for (Index = 0; Index < SfsCount; Index++) {
+    EFI_FILE_PROTOCOL  *Root;
+    EFI_FILE_PROTOCOL  *File;
+
+    Root = NULL;
+    File = NULL;
+
+    Status = gBS->HandleProtocol (
+                    SfsHandlesCopy[Index],
+                    &gEfiSimpleFileSystemProtocolGuid,
+                    (VOID **)&Root
+                    );
+    if (EFI_ERROR (Status) || (Root == NULL)) {
+      continue;
+    }
+
+    File = NULL;
+    Status = Root->Open (
+                     Root,
+                     &File,
+                     (CHAR16 *)LoaderPath,
+                     EFI_FILE_MODE_READ,
+                     0
+                     );
+    if ((Status == EFI_SUCCESS) && (File != NULL)) {
+      File->Close (File);
+      DevicePath = FileDevicePath (SfsHandlesCopy[Index], (CHAR16 *)LoaderPath);
+      break;
+    }
+  }
+
+  FreePool (SfsHandles);
+
+  if (DevicePath == NULL) {
+    DEBUG ((DEBUG_INFO, "%a: %s not present on any ESP yet\n", __func__, LoaderPath));
+    return;
+  }
+
+  Status = EfiBootManagerInitializeLoadOption (
+             &Option,
+             LoadOptionNumberUnassigned,
+             LoadOptionTypeBoot,
+             LOAD_OPTION_ACTIVE,
+             L"Linux (X96Loader)",
+             DevicePath,
+             NULL,
+             0
+             );
+  FreePool (DevicePath);
+
+  //
+  // Only add once; on repeat boots keep the stored position untouched so
+  // user-chosen ordering via the boot menu is respected.
+  //
+  BootOptions = EfiBootManagerGetLoadOptions (&BootOptionCount, LoadOptionTypeBoot);
+  if (EfiBootManagerFindLoadOption (&Option, BootOptions, BootOptionCount) >= 0) {
+    EfiBootManagerFreeLoadOption (&Option);
+    EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+    return;
+  }
+
+  EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+
+  Key.ScanCode    = SCAN_NULL;
+  Key.UnicodeChar = L'l';
+
+  {
+    //
+    // EfiBootManagerAddKeyOptionVariable needs the final number, so add the
+    // option first, then bind the hotkey.
+    //
+    EFI_BOOT_MANAGER_LOAD_OPTION  AddOption = Option;
+
+    Status = EfiBootManagerAddLoadOptionVariable (&AddOption, 0);
+    if (!EFI_ERROR (Status)) {
+      EfiBootManagerAddKeyOptionVariable (NULL, AddOption.OptionNumber, 0, &Key, NULL);
+    }
+
+    EfiBootManagerFreeLoadOption (&Option);
+    return;
   }
 }
 
