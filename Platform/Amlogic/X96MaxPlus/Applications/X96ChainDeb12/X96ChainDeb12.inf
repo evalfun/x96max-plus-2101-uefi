@@ -1,0 +1,33 @@
+##
+# GRUB-chainable wrapper: X96LinuxBoot with the Debian 6.12.100 kernel.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = X96ChainDeb12
+  FILE_GUID                      = b96b1d28-8ee2-4e13-9dbb-7e4e6aa76930
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = X96ChainEntryPoint
+
+[Sources]
+  ../X96Chain/X96Chain.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  BaseMemoryLib
+  DevicePathLib
+  DebugLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
+[BuildOptions]
+  GCC:*_*_AARCH64_CC_FLAGS = -DCHAIN_DEBIAN

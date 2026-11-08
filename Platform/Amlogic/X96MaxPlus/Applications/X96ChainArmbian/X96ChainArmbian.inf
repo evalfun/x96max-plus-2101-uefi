@@ -1,0 +1,29 @@
+##
+# GRUB-chainable wrapper: X96LinuxBoot with the Armbian 6.6 kernel.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = X96ChainArmbian
+  FILE_GUID                      = 4066d0b5-59b7-4d31-9e58-f6f8f76c53ef
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = X96ChainEntryPoint
+
+[Sources]
+  ../X96Chain/X96Chain.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  DebugLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+
