@@ -367,9 +367,15 @@ X96LinuxEntryPoint (
   Pages      = EFI_SIZE_TO_PAGES (INITRD_MAX);
   Status2    = gBS->AllocatePages (AllocateAddress, EfiBootServicesData, Pages, &InitrdBase);
   if (EFI_ERROR (Status2)) {
-    Print (L"X96Linux: initrd alloc: %r\n", Status2);
-    return EFI_SUCCESS;
+    Print (L"X96Linux: initrd fixed target busy (%r); using any pages\n", Status2);
+    InitrdBase = 0;
+    Status2    = gBS->AllocatePages (AllocateAnyPages, EfiBootServicesData, Pages, &InitrdBase);
+    if (EFI_ERROR (Status2)) {
+      Print (L"X96Linux: initrd any-page alloc: %r\n", Status2);
+      return EFI_SUCCESS;
+    }
   }
+  Print (L"X96Linux: initrd target 0x%llx\n", (UINT64)InitrdBase);
 
   Status2 = ReadFileToTarget (FileSystem, mInitrdPath, InitrdBase, INITRD_MAX, &InitrdSize);
   if (EFI_ERROR (Status2)) {
