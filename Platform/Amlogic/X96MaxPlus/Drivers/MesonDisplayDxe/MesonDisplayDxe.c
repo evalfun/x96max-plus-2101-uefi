@@ -27,6 +27,7 @@
 #include <Library/FdtLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PrintLib.h>
+#include <Library/UefiBootManagerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
@@ -227,9 +228,23 @@ PatchFramebufferDtb (
     FdtDelProp (Dtb, Node, "compatible");
   }
 
+  //
+  // The VIM3 firmware DT shipped a curated /chosen/framebuffer-hdmi node;
+  // this platform's DT does not, so create it on demand.
+  //
   Node = FdtPathOffset (Dtb, "/chosen/framebuffer-hdmi");
   if (Node < 0) {
-    return EFI_NOT_FOUND;
+    INT32  Chosen;
+
+    Chosen = FdtPathOffset (Dtb, "/chosen");
+    if (Chosen < 0) {
+      return EFI_NOT_FOUND;
+    }
+
+    Node = FdtAddSubnode (Dtb, Chosen, "framebuffer-hdmi");
+    if (Node < 0) {
+      return EFI_DEVICE_ERROR;
+    }
   }
 
   Width  = Private->Timing.Width;
@@ -240,7 +255,8 @@ PatchFramebufferDtb (
   Reg[2] = SwapBytes32 ((UINT32)RShiftU64 (Private->FrameBufferSize, 32));
   Reg[3] = SwapBytes32 ((UINT32)Private->FrameBufferSize);
 
-  if ((FdtSetProp (Dtb, Node, "status", "okay", sizeof ("okay")) != 0) ||
+  if ((FdtSetProp (Dtb, Node, "compatible", "simple-framebuffer", sizeof ("simple-framebuffer")) != 0) ||
+      (FdtSetProp (Dtb, Node, "status", "okay", sizeof ("okay")) != 0) ||
       EFI_ERROR (SetFdtU32 (Dtb, Node, "width", Width)) ||
       EFI_ERROR (SetFdtU32 (Dtb, Node, "height", Height)) ||
       EFI_ERROR (SetFdtU32 (Dtb, Node, "stride", Stride)) ||
@@ -336,11 +352,12 @@ ConfigureFrameBuffer (
   }
 
   //
-  // A dark blue fill is both a deterministic initial state and an immediate
-  // scanout diagnostic before the console starts drawing.
+  // An opaque black fill is the deterministic initial state; it also
+  // immediately proves scanout (the vendor logo disappears without any
+  // firmware content having been drawn).
   //
   PixelCount = Private->FrameBufferSize / sizeof (UINT32);
-  SetMem32 ((VOID *)(UINTN)Private->FrameBufferBase, PixelCount * sizeof (UINT32), 0x00204060);
+  SetMem32 ((VOID *)(UINTN)Private->FrameBufferBase, PixelCount * sizeof (UINT32), 0xFF000000);
   WriteBackDataCacheRange (
     (VOID *)(UINTN)Private->FrameBufferBase,
     Private->FrameBufferSize
@@ -512,6 +529,22 @@ MesonDisplayDxeEntryPoint (
     DEBUG ((DEBUG_ERROR, "MesonDisplay: GOP install failed: %r\n", Status));
     return EFI_SUCCESS;
   }
+
+  //
+  // Put the display on the firmware console: ConSplitter/glyph output
+  // (UiApp, boot menu, GraphicsConsole) then draws on it, and GRUB will
+  // pick the GOP directly.
+  //
+  EfiBootManagerUpdateConsoleVariable (
+    ConOut,
+    (EFI_DEVICE_PATH_PROTOCOL *)&Private->DevicePath,
+    NULL
+    );
+  EfiBootManagerUpdateConsoleVariable (
+    ErrOut,
+    (EFI_DEVICE_PATH_PROTOCOL *)&Private->DevicePath,
+    NULL
+    );
 
   Status = PatchFramebufferDtb (Private);
   if (EFI_ERROR (Status)) {

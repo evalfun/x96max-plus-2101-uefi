@@ -15,6 +15,12 @@ edk2_stamp="${project_root}/out/.patchset-edk2.stamp"
 edk2_platforms_stamp="${project_root}/out/.patchset-edk2-platforms.stamp"
 
 target=${1:-DEBUG}
+
+# The GenFv step can otherwise serve a stale FV when only module metadata
+# changed (this bit us once - an INF DEPEX edit silently never reached the
+# firmware).  The FV directory has no hand-maintained content, so wiping it
+# is always safe.
+rm -rf "${edk2_root}/Build/AmlogicX96MaxPlus-AARCH64/${target}_GCC/FV"
 base_dtb="${project_root}/Platform/Amlogic/X96MaxPlus/DeviceTree/meson-sm1-x96-max-plus-2101.dtb"
 
 # Submodule patch stamps use file timestamps relative to the patch files.

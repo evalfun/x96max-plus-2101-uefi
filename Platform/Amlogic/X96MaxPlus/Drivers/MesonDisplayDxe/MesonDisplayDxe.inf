@@ -41,6 +41,7 @@
   UefiBootServicesTableLib
   UefiDriverEntryPoint
   UefiLib
+  UefiBootManagerLib
   UefiRuntimeServicesTableLib
 
 [Guids]
