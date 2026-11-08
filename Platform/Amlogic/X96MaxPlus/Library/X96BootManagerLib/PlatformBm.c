@@ -45,15 +45,14 @@
 
 //
 // Retry parameters for the USB enumeration recovery loop in
-// PlatformBootManagerAfterConsole.  EDK2's one-shot xHCI bring-up on this DWC3
-// controller intermittently fails wholesale under RELEASE timing, so the full
-// controller init is retried (disconnect/reconnect => fresh DWC3 + xHCI reset)
-// until at least X96_USB_MIN_DEVICES devices enumerate, up to
-// X96_USB_ENUM_MAX_ATTEMPTS times, with a settle each pass for the async hub
-// bring-up.
+// PlatformBootManagerAfterConsole.  The upstream VIM3 worked around a
+// noisy DWC3 with 12 attempts of a 3-second settle each; on X96 Max+
+// that is 36 s of pure stalling with an empty USB tree.  Bring-up runs
+// one 1 s settle and one retry pass at most - the loop remains a
+// recovery net, not a wait.
 //
-#define X96_USB_SETTLE_STALL_US    (3000 * 1000)
-#define X96_USB_ENUM_MAX_ATTEMPTS  12
+#define X96_USB_SETTLE_STALL_US    (1000 * 1000)
+#define X96_USB_ENUM_MAX_ATTEMPTS  2
 
 #pragma pack (1)
 typedef struct {
