@@ -38,6 +38,7 @@
 
 [Guids]
   gFdtHobGuid
+  gFdtTableGuid
   gEfiFileInfoGuid
 
 [Pcd]

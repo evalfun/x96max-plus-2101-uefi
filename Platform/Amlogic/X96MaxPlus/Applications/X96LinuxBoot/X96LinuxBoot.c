@@ -16,6 +16,7 @@
 #include <Library/FdtLib.h>
 #include <Library/PcdLib.h>
 
+#include <Guid/Fdt.h>
 #include <Guid/FdtHob.h>
 #include <Guid/FileInfo.h>
 #include <Protocol/SimpleFileSystem.h>
@@ -213,8 +214,21 @@ PrepareFdt (
   UINTN       SizeWithSlack;
   UINTN       CmdlineBytes;
 
-  Source = (VOID *)(UINTN)PcdGet64 (PcdDeviceTreeInitialBaseAddress);
+  //
+  // Prefer the firmware-published DeviceTree configuration table - the
+  // same source the Linux EFI stub picks its DTB from...
+  //
+  Source = NULL;
+  Status = EfiGetSystemConfigurationTable (&gFdtTableGuid, &Source);
+  if (EFI_ERROR (Status) || (Source == NULL) || (FdtCheckHeader (Source) != 0)) {
+    //
+    // ...and fall back to the embedded FV copy.
+    //
+    Source = (VOID *)(UINTN)PcdGet64 (PcdDeviceTreeInitialBaseAddress);
+  }
+
   if ((Source == NULL) || (FdtCheckHeader (Source) != 0)) {
+    Print (L"X96Linux: no DeviceTree reachable (config table + FV probe failed)\n");
     return EFI_NOT_FOUND;
   }
 
