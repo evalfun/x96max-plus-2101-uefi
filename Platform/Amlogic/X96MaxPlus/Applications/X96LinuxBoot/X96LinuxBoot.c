@@ -47,8 +47,8 @@
 //
 #define CMDLINE_MAX  512
 
-CHAR16  mKernelPath[]  = L"\\vmlinuz-6.6.74-happy-new-year";
-CHAR16  mInitrdPath[]  = L"\\initrd.img-6.6.74-happy-new-year";
+CHAR16  mKernelPath[]  = L"\\vmlinuz-6.12.114-ophub";
+CHAR16  mInitrdPath[]  = L"\\initrd.img-6.12.114-ophub";
 CHAR8   mCmdline[]     = "console=ttyAML0,115200n8 root=/dev/mmcblk1p2 rootwait rootfstype=ext4 rw loglevel=7";
 
 //

@@ -27,11 +27,11 @@
 // SD rootfs (ext4 is a module for the Debian build, so the initrd is
 // mandatory here).
 //
-STATIC CHAR16  mKernelPath[]  = L"\\EFI\\BOOT\\vmlinuz-6.12.100";
-STATIC CHAR16  mInitrdPath[]  = L"\\EFI\\BOOT\\initrd-6.12.100";
+STATIC CHAR16  mKernelPath[]  = L"\\EFI\\BOOT\\vmlinuz-6.12.114-ophub";
+STATIC CHAR16  mInitrdPath[]  = L"\\EFI\\BOOT\\initrd-6.12.114-ophub";
 #else
-STATIC CHAR16  mKernelPath[]  = L"\\vmlinuz-6.6.74-happy-new-year";
-STATIC CHAR16  mInitrdPath[]  = L"\\initrd.img-6.6.74-happy-new-year";
+STATIC CHAR16  mKernelPath[]  = L"\\vmlinuz-6.1.188-ophub";
+STATIC CHAR16  mInitrdPath[]  = L"\\initrd.img-6.1.188-ophub";
 #endif
 
 //
