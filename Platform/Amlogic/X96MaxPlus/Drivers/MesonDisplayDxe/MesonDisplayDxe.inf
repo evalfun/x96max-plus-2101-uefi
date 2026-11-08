@@ -52,7 +52,6 @@
   gEfiEdidActiveProtocolGuid
   gEfiEdidDiscoveredProtocolGuid
   gEfiGraphicsOutputProtocolGuid
-  gFdtClientProtocolGuid
 
 [Depex]
-  gEfiCpuArchProtocolGuid AND gFdtClientProtocolGuid
+  gEfiCpuArchProtocolGuid
