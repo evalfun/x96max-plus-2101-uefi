@@ -61,6 +61,10 @@ X96LinuxBootHandoff (
   IN UINT64  Fdt
   );
 
+VOID
+EFIAPI
+X96CpuDehydrate (VOID);
+
 STATIC
 EFI_STATUS
 ReadFileToTarget (
@@ -332,6 +336,12 @@ X96LinuxEntryPoint (
   UINTN                              Pages;
 
   Print (L"\nX96Linux (booti-style booter) for X96 Max+ build.\n");
+  {
+    UINT64  CurEl;
+    __asm__ volatile ("mrs %0, currentel" : "=r" (CurEl));
+    Print (L"X96Linux: CurrentEL raw 0x%lx (EL%a)\n", CurEl,
+           ((((CurEl >> 2) & 3) == 1) ? L"1" : (((CurEl >> 2) & 3) == 2) ? L"2" : L"3"));
+  }
 
   FileSystem = FindBootFileSystem ();
   if (FileSystem == NULL) {
@@ -419,12 +429,9 @@ X96LinuxEntryPoint (
   InvalidateDataCache ();
   Print (L"X96Linux: [3/6] I-cache invalidate\n");
   InvalidateInstructionCache ();
-  Print (L"X96Linux: [4/6] D-cache off\n");
-  ArmDisableDataCache ();
-  Print (L"X96Linux: [5/6] I-cache off\n");
-  ArmDisableInstructionCache ();
-  Print (L"X96Linux: [6/6] MMU off, TLB invalidating...\n");
-  ArmDisableMmu ();
+  Print (L"X96Linux: [4/6..6/6] dehydrate (caches/TLB, per-EL asm)\n");
+  X96CpuDehydrate ();
+  Print (L"X96Linux: dehydrated.\n");
   Print (L"X96Linux: MMU off; branching to 0x%016llx with x0=FDT 0x%016llx...\n",
          KernelBase, FdtBase);
 
