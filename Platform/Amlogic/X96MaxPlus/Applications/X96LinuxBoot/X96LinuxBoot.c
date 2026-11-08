@@ -365,7 +365,7 @@ X96LinuxEntryPoint (
 
   KernelBase = KERNEL_TARGET_BASE;
   Pages      = EFI_SIZE_TO_PAGES (KERNEL_MAX);
-  Status     = gBS->AllocatePages (AllocateAddress, EfiLoaderData, Pages, &KernelBase);
+  Status     = gBS->AllocatePages (AllocateAddress, EfiBootServicesData, Pages, &KernelBase);
   if (EFI_ERROR (Status)) {
     Print (L"X96Linux: kernel pages alloc: %r\n", Status);
     return EFI_SUCCESS;
