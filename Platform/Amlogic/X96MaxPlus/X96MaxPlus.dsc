@@ -233,3 +233,4 @@
       NULL|MdeModulePkg/Library/BootManagerUiLib/BootManagerUiLib.inf
       NULL|MdeModulePkg/Library/BootMaintenanceManagerUiLib/BootMaintenanceManagerUiLib.inf
   }
+  Platform/Amlogic/X96MaxPlus/Applications/X96LinuxBoot/X96LinuxBoot.inf

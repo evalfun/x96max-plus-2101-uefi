@@ -1,0 +1,46 @@
+## @file
+#  X96 Max+ booti-style Linux handoff, a Shell-loadable application
+#
+#  Copyright (c) 2026. BSD-2-Clause-Patent.
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = X96LinuxBoot
+  FILE_GUID                      = ad3809c8-3f6b-4c72-ab9d-47a96745f715
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = X96LinuxEntryPoint
+
+[Sources]
+  X96LinuxBoot.c
+  X96LinuxBootJump.S
+
+[Packages]
+  MdePkg/MdePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  ArmPkg/ArmPkg.dec
+  OvmfPkg/OvmfPkg.dec
+  Platform/Amlogic/X96MaxPlus/X96MaxPlus.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  BaseLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  DebugLib
+  ArmLib
+  CacheMaintenanceLib
+  FdtLib
+  PcdLib
+
+[Guids]
+  gFdtHobGuid
+  gEfiFileInfoGuid
+
+[Pcd]
+  gUefiOvmfPkgTokenSpaceGuid.PcdDeviceTreeInitialBaseAddress
+  gArmTokenSpaceGuid.PcdSystemMemoryBase
+  gArmTokenSpaceGuid.PcdSystemMemorySize
