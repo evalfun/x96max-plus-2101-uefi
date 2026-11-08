@@ -103,26 +103,6 @@ PrePiMain (
       (UINT32)((UINT64)4000000 * 16 * 24 / (T1 - T0) % 1000)
       ));
 
-    Cntl0 = MmioRead32 (MESON_SM1_HHI_BASE + 0x2f4);
-    DEBUG ((DEBUG_INFO, "X96M SYS_PLL_CNTL0 pre  : 0x%08x\n", Cntl0));
-    DEBUG ((DEBUG_INFO, "X96M SYS_CPU_CLK_CNTL0 : 0x%08x\n", MmioRead32 (MESON_SM1_HHI_BASE + 0x19c)));
-
-    //
-    // rst=1, en=1, m=134, n=1, postdiv=1.
-    //
-    MmioWrite32 (MESON_SM1_HHI_BASE + 0x2f4, 0x20040486);
-    for (Index = 0; Index < 100000; Index++) {
-      Cntl0 = MmioRead32 (MESON_SM1_HHI_BASE + 0x2f4);
-      if ((Cntl0 & (1U << 31)) != 0) {
-        break;
-      }
-    }
-    //
-    // rst=0 (release), en stays set.  cpu_clk mux (Final_mux_sel, 0x19c
-    // bit 11) is already parked on sys_pll by the boot chain.
-    //
-    MmioWrite32 (MESON_SM1_HHI_BASE + 0x2f4, 0x10040486);
-
     __asm__ volatile ("mrs %0, cntpct_el0" : "=r" (T0));
     for (Index = 0; Index < 4000000; Index++) {
       __asm__ volatile ("nop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop\r\nnop");
