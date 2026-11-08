@@ -47,7 +47,7 @@
 
 CHAR16  mKernelPath[]  = L"\\vmlinuz-6.6.74-happy-new-year";
 CHAR16  mInitrdPath[]  = L"\\initrd.img-6.6.74-happy-new-year";
-CHAR16  mCmdline[]     = L"console=ttyAML0,115200n8 root=UUID=4e793417-9f2f-4ead-a796-eb92da3db26a rw rootfstype=ext4 rootflags=data=writeback net.ifnames=0";
+CHAR8   mCmdline[]     = "console=ttyAML0,115200n8 root=/dev/mmcblk1p2 rootwait rootfstype=ext4 rw loglevel=7";
 
 //
 // Handoff helper in X96LinuxBootJump.S.  C ABI: (x0 = entry point,
@@ -311,10 +311,11 @@ PrepareFdt (
     }
   }
 
-  CmdlineBytes = (2 * StrLen (mCmdline) + 2) * sizeof (CHAR16);
-  if (FdtSetProp (Copy, Chosen, "bootargs", mCmdline, CmdlineBytes / 2) != 0) {
+  CmdlineBytes = AsciiStrLen (mCmdline) + 1;   // FDT wants NUL-terminated ASCII bytes
+  if (FdtSetProp (Copy, Chosen, "bootargs", mCmdline, CmdlineBytes) != 0) {
     return EFI_DEVICE_ERROR;
   }
+  Print (L"X96Linux: bootargs set (%d bytes ascii): %a\n", CmdlineBytes, mCmdline);
 
   FdtDelProp (Copy, Chosen, "linux,initrd-start");
   FdtDelProp (Copy, Chosen, "linux,initrd-end");
