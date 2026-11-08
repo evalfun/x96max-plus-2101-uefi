@@ -42,14 +42,20 @@ ASM_FUNC(x96_exception_handler)
   str   w4, [x2]
 3:  b     3b
 
+//
+// x16/x17 are free at this point (no ABI obligations: the CEntryPoint
+// argument registers are x0/x1/x2, DTB/base live in x28/x27, MpId in x20).
+// An earlier version used x2, which silently clobbered the StacksBase
+// handoff into CEntryPoint (allocations then came from the UART region).
+//
   .macro  UARTPROBE ch
-    ldr   x2, =0xFF803000
-    mov   w3, #\ch
-    str   w3, [x2]
-    mov   w3, #0x0d
-    str   w3, [x2]
-    mov   w3, #0x0a
-    str   w3, [x2]
+    ldr   x16, =0xFF803000
+    mov   w17, #\ch
+    str   w17, [x16]
+    mov   w17, #0x0d
+    str   w17, [x16]
+    mov   w17, #0x0a
+    str   w17, [x16]
   .endm
 
 ASM_FUNC(_ModuleEntryPoint)
@@ -61,15 +67,15 @@ ASM_FUNC(_ModuleEntryPoint)
   // corrupt shared state mid-run, which is exactly the shape of the hang
   // after the H probe.
   //
-  ldr   x2, =0xFF803000
+  ldr   x16, =0xFF803000
   mrs   x4, MPIDR_EL1
   and   x4, x4, #0xff
   add   x4, x4, #0x30
-  str   w4, [x2]           // core id as a digit
-  mov   w3, #0x0d
-  str   w3, [x2]
-  mov   w3, #0x0a
-  str   w3, [x2]
+  str   w4, [x16]          // core id as a digit
+  mov   w17, #0x0d
+  str   w17, [x16]
+  mov   w17, #0x0a
+  str   w17, [x16]
 
   //
   // Report the exception level the bootloader handed us.  Amlogic's
