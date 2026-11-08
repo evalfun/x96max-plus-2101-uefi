@@ -45,8 +45,8 @@
 //
 #define CMDLINE_MAX  512
 
-CHAR16  mKernelPath[]  = L"\\EFI\\BOOT\\vmlinuz-6.6.74-happy-new-year";
-CHAR16  mInitrdPath[]  = L"\\EFI\\BOOT\\initrd.img-6.6.74-happy-new-year";
+CHAR16  mKernelPath[]  = L"\\vmlinuz-6.6.74-happy-new-year";
+CHAR16  mInitrdPath[]  = L"\\initrd.img-6.6.74-happy-new-year";
 CHAR16  mCmdline[]     = L"console=ttyAML0,115200n8 root=UUID=4e793417-9f2f-4ead-a796-eb92da3db26a rw rootfstype=ext4 rootflags=data=writeback net.ifnames=0";
 
 //
