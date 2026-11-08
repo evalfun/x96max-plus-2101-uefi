@@ -259,33 +259,12 @@ MesonEnableUsbPower (
   )
 {
   //
-  // Make both regulator control pins GPIOs. GPIOH_8 lives in the second
-  // pinmux word for bank H; GPIOA_6 lives in the first word for bank A.
-  //
-  Rmw32 (MUX_GPIOH_8, MUX_GPIOH_8_MASK, 0);
-  Rmw32 (MUX_GPIOA_6, MUX_GPIOA_6_MASK, 0);
-
-  //
-  // Open-drain high is represented by releasing GPIOH_8 (input).  Program
-  // its output latch high as well so a later output transition stays safe.
-  //
-  MmioOr32 (GPIO_H_OUTPUT, BIT8);
-  MmioOr32 (GPIO_H_DIRECTION, BIT8);
-
-  //
-  // Drive USB_PWR high.  Program the latch before changing direction to
-  // avoid a low pulse on the 5 V rail.
-  //
-  MmioOr32 (GPIO_A_OUTPUT, BIT6);
-  MmioAnd32 (GPIO_A_DIRECTION, ~BIT6);
-  ArmDataSynchronizationBarrier ();
-
-  //
-  // The VIM3 host ports sit behind externally powered USB circuitry.  A
-  // one-millisecond delay is not sufficient after a cold power-on: the XHCI
-  // root hub can observe a connection before the hub or mass-storage device
-  // is ready to complete SET_ADDRESS, producing an intermittent transaction
-  // error.  USB 2.0 permits up to 100 ms for power to stabilize.
+  // X96 Max+: USB VBUS is hardwired to the always-on 5 V rail -- the board
+  // DTB carries no vbus-supply and mainline Linux lights the ports with zero
+  // GPIO writes.  The VIM3's GPIOA_6/GPIOH_8 regulator policy does not exist
+  // here, and writing those pads on this board is worse than useless (GPIOH_8
+  // serves other functions on X96 hardware).  Touch nothing; wait out the
+  // USB 2.0 power-stabilisation window they imposed.
   //
   MicroSecondDelay (USB_VBUS_STABILIZE_US);
 }
@@ -778,7 +757,7 @@ MesonUsbInitialize (
   // retry to start from a clean controller.
   //
 
-  DEBUG ((DEBUG_INFO, "MesonUSB: enabling VIM3 USB power rails\n"));
+  DEBUG ((DEBUG_INFO, "MesonUSB: no board VBUS regulator (hardwired rail)\n"));
   MesonEnableUsbPower ();
 
   DEBUG ((DEBUG_INFO, "MesonUSB: enabling controller clocks\n"));
