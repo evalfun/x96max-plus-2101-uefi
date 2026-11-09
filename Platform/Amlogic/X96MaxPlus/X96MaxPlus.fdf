@@ -92,6 +92,7 @@ APRIORI DXE {
   INF MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
   INF MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
   INF Platform/Amlogic/X96MaxPlus/Drivers/MesonDisplayDxe/MesonDisplayDxe.inf
+  INF Platform/Amlogic/X96MaxPlus/Applications/X96SdDiag/X96SdDiag.inf
   INF MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
   INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
 

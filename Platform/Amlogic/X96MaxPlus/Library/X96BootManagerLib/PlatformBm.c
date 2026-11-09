@@ -735,6 +735,13 @@ PlatformRegisterOptionsAndKeys (
 //
 STATIC EFI_GUID  mMesonEmmcDevicePathGuid =
   { 0x9ec8ef97, 0x39d8, 0x48a3, { 0x84, 0xaf, 0xa1, 0x94, 0xd9, 0x92, 0xc6, 0x37 } };
+  //
+  // FV file GUID of the X96SdDiag application (its .inf FILE_GUID).
+  //
+  STATIC EFI_GUID  gX96SdDiagFileGuid = {
+    0x7c848874, 0x9d54, 0x4977, { 0x8d, 0xdc, 0x79, 0x33, 0x14, 0x84, 0x76, 0xa2 }
+  };
+
 STATIC EFI_GUID  mMesonSdDevicePathGuid =
   { 0xb072f2f9, 0x1405, 0x4a13, { 0xa2, 0x10, 0x3e, 0x5a, 0x4d, 0xd3, 0xb5, 0x20 } };
 
@@ -1411,6 +1418,19 @@ PlatformBootManagerAfterConsole (
   Key.ScanCode    = SCAN_NULL;
   Key.UnicodeChar = L's';
   PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", 0, &Key);
+
+  //
+  // X96 SD diagnostics is an FV-resident app bound to the 'd' hotkey: with
+  // no serial and possibly no filesystem, pressing 'd' during the countdown
+  // prints the SD identification diagnostics on the local console.
+  //
+  {
+    EFI_INPUT_KEY  KeyD;
+
+    KeyD.ScanCode    = SCAN_NULL;
+    KeyD.UnicodeChar = L'd';
+    PlatformRegisterFvBootOption (&gX96SdDiagFileGuid, L"X96 SD Diagnostic", 0, &KeyD);
+  }
 
   //
   // X96 additions: a plainly-named entry for the setup UI (the same UiApp

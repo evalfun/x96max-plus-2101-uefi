@@ -242,3 +242,4 @@
   Platform/Amlogic/X96MaxPlus/Applications/X96LinuxBoot/X96LinuxBoot.inf
   Platform/Amlogic/X96MaxPlus/Applications/X96ChainDeb12/X96ChainDeb12.inf
   Platform/Amlogic/X96MaxPlus/Applications/X96ChainArmbian/X96ChainArmbian.inf
+  Platform/Amlogic/X96MaxPlus/Applications/X96SdDiag/X96SdDiag.inf
