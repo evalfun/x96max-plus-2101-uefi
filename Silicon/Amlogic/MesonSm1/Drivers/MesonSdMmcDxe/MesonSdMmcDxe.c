@@ -1179,14 +1179,33 @@ MesonNotifyState (
   // SD-host diagnostics: the shared variable records only this host; the
   // eMMC's own progress must not fold into it.
   //
+  //
+  // Preserve the counters across the HwInit re-initialisation: the tuner
+  // inside MesonHardwareInit starts from a clean struct and would
+  // otherwise erase the very trace we are trying to read from the
+  // console.
+  //
+  UINT32  KeepNotifies  = mSdDiag.NotifyCount;
+  UINT32  KeepStateMask = mSdDiag.StateMask;
+  UINT32  KeepPolls     = mSdDiag.CardPolls;
+  UINT32  KeepLastCmd   = mSdDiag.LastCmd;
+  UINT64  KeepTrace     = mSdDiag.CmdTrace;
+
   mSdDiag.NotifyCount++;
   mSdDiag.LastState = State;
   mSdDiag.StateMask |= (1U << State);
   if (State == MmcHwInitializationState) {
     Status = MesonHardwareInit (Host);
+
+    mSdDiag.NotifyCount = KeepNotifies;
+    mSdDiag.StateMask   = KeepStateMask;
+    mSdDiag.CardPolls   = KeepPolls;
+    mSdDiag.LastCmd     = KeepLastCmd;
+    mSdDiag.CmdTrace    = KeepTrace;
   } else {
     Status = EFI_SUCCESS;
   }
+
   MesonPublishSdDiag ();
   return Status;
 }
