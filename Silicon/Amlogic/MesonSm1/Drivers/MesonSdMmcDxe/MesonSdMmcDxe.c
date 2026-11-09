@@ -1104,6 +1104,12 @@ MesonIsCardPresent (
   // NotifyState transitions).  Let the identification itself decide: a
   // present card answers CMD0/ACMD41, an absent slot fails cleanly there.
   //
+  // Each call is a heartbeat: EmbeddedPkg polls every 200 ms once the
+  // driver binding has been started for this host, so the counter doubles
+  // as binding-liveness evidence in the diagnostics.
+  //
+  mSdDiag.CardPolls++;
+  MesonPublishSdDiag ();
   return TRUE;
 }
 
@@ -1499,6 +1505,16 @@ MesonInstallHost (
       Host->IsEmmc ? "eMMC" : "SD",
       Host->Base
       ));
+
+    //
+    // Do not rely on BDS ordering: the platform's connect-all pass runs
+    // far after dispatch, and whichever runs first decides whether
+    // EmbeddedPkg's MmcDxe ever binds (and identification only begins
+    // once it does).  Connecting here makes the binding happen the
+    // moment both sides exist; the BDS pass remains the fallback when
+    // MmcDxe was not dispatched yet.
+    //
+    gBS->ConnectController (Host->Handle, NULL, NULL, FALSE);
   }
 
   return Status;

@@ -15,25 +15,9 @@
 #include <Library/UefiLib.h>
 #include <Uefi/UefiSpec.h>
 
-STATIC EFI_GUID  mDiagGuid = {
-  0x25b7b0e4, 0x8c11, 0x435e, { 0x9d, 0x7b, 0x62, 0xef, 0xf9, 0x77, 0xd1, 0x72 }
-};
+#include <MesonSdDiag.h>
 
-#pragma pack (1)
-typedef struct {
-  UINT8   Tuned;
-  UINT8   Co;
-  UINT8   Tx;
-  UINT8   Pad;
-  UINT32  Magic;
-  UINT32  ClockHz;
-  UINT32  EchoR0;
-  UINT8   Csd[16];
-  UINT32  Ocr;
-  UINT32  Attempts;
-  UINT32  LastStatus;
-} X96_SD_DIAG;
-#pragma pack ()
+#define mDiagGuid  mMesonSdDiagGuid
 
 STATIC
 VOID
@@ -68,7 +52,7 @@ PrintStatusName (
 STATIC
 UINT32
 Rd (
-  IN CONST X96_SD_DIAG  *D,
+  IN CONST MESON_SD_DIAG_VAR  *D,
   IN UINTN              Off
   )
 {
@@ -89,7 +73,7 @@ X96SdDiagEntryPoint (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  X96_SD_DIAG  D;
+  MESON_SD_DIAG_VAR  D;
   UINTN        Size;
   EFI_STATUS   Status;
   UINT32       W0;
@@ -98,6 +82,7 @@ X96SdDiagEntryPoint (
   UINT32       W3;
   UINT32       Struct;
   UINT32       CSize;
+  UINTN        Idx;
 
   Size = sizeof (D);
   ZeroMem (&D, sizeof (D));
@@ -130,7 +115,24 @@ X96SdDiagEntryPoint (
     Print (L"v2 C_SIZE=%u -> capacity ~%u MiB (%u blocks of 512KiB)\n", CSize, (CSize + 1) / 2, (CSize + 1));
   }
 
-  Print (L"OCR word: %08x  [bit30=CCS(SDHC), bit31=pow-down]\n", D.Ocr);
+  Print (
+    L"OCR word: %08x  [bit30=CCS(SDHC), bit31=pow-down]\n",
+    D.Ocr
+    );
+  Print (
+    L"MmcDxe state: notifies=%u last-state=%u statemask=%08x polls=%u\n",
+    D.NotifyCount,
+    D.LastState,
+    D.StateMask,
+    D.CardPolls
+    );
+  Print (L"cmd trace=0x%016lx  last-cmd=%u\n", D.CmdTrace, D.LastCmd);
+  Print (L"raw regs   :");
+  for (Idx = 0; Idx < 16; Idx++) {
+    Print (L" %08x", D.RawRegs[Idx]);
+  }
+
+  Print (L"\n");
   Print (L"\nhealthy SD expected: structure=1, v2 C_SIZE~=~%u MiB, echo bit8..15=AA,\n", 65504 / 2);
   Print (L"sampled w3 third word == echo of OCR block (0xC0FF8000-family).\n");
 

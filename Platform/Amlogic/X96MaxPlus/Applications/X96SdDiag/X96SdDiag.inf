@@ -16,6 +16,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  Silicon/Amlogic/MesonSm1/MesonSm1.dec
 
 [LibraryClasses]
   UefiApplicationEntryPoint
