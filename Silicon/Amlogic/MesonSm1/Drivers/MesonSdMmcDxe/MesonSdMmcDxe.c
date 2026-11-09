@@ -12,6 +12,8 @@
 
 #include <Uefi.h>
 
+#include <MesonSdDiag.h>
+
 #include <Library/ArmLib.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -636,27 +638,11 @@ MesonSetClockPhase (
 // serial-less box can still report what the card identification observed
 // (the BDS code and the Shell's dmpstore both print it).
 //
-STATIC EFI_GUID  mX96SdDiagGuid =
-  { 0x25b7b0e4, 0x8c11, 0x435e, { 0x9d, 0x7b, 0x62, 0xef, 0xf9, 0x77, 0xd1, 0x72 } };
+//  diagnostics struct now lives in MesonSdDiag.h
 
-#pragma pack (1)
-typedef struct {
-  UINT32  Magic;        // 'X96!' = 0x21583936
-  UINT8   Tuned;        // phase search locked
-  UINT8   Co;
-  UINT8   Tx;
-  UINT8   Pad;
-  UINT32  ClockHz;      // identification clock in use
-  UINT32  EchoR0;       // CMD8 echo word of the locked phase
-  UINT8   Csd[16];      // raw CSD as captured from CMD9 (R2)
-  UINT32  Ocr;          // ACMD41 OCR word
-  UINT32  Attempts;     // CMD8 probes issued by the tuner
-  UINT32  LastStatus;   // EFI_STATUS of the last CMD8 probe
-  UINT32  Cid[4];       // CMD2 (R2 long) words of the locked phase
-} X96_SD_DIAG;
 #pragma pack ()
 
-STATIC X96_SD_DIAG  mSdDiag;
+STATIC MESON_SD_DIAG_VAR  mSdDiag;
 STATIC BOOLEAN      mSdDiagCsdCaptured;
 
 STATIC
@@ -667,7 +653,7 @@ MesonPublishSdDiag (
 {
   gRT->SetVariable (
          L"X96SdDiag",
-         &mX96SdDiagGuid,
+         &mMesonSdDiagGuid,
          EFI_VARIABLE_BOOTSERVICE_ACCESS,
          sizeof (mSdDiag),
          &mSdDiag
@@ -1003,6 +989,25 @@ MesonExecuteCommand (
   Host->Response[1] = MmioRead32 (Host->Base + SD_EMMC_CMD_RSP1);
   Host->Response[2] = MmioRead32 (Host->Base + SD_EMMC_CMD_RSP2);
   Host->Response[3] = MmioRead32 (Host->Base + SD_EMMC_CMD_RSP3);
+
+  if (!Host->IsEmmc) {
+    //
+    // Command trace: every index the SD host ever saw, for the BDS diag.
+    //
+    mSdDiag.CmdTrace |= (1ULL << (Index & 63));
+    mSdDiag.LastCmd   = Index;
+    if (!mSdDiagCsdCaptured) {
+      if (Index == 8) {
+        mSdDiag.EchoR0 = Host->Response[0];
+      } else if (Index == 41) {
+        mSdDiag.Ocr    = Host->Response[0];
+      } else if (Index == 9) {
+        CopyMem (mSdDiag.Csd, &Host->Response[0], sizeof (mSdDiag.Csd));
+        mSdDiagCsdCaptured = TRUE;
+        MesonPublishSdDiag ();
+      }
+    }
+  }
 
   if (!Host->IsEmmc && !mSdDiagCsdCaptured) {
     if (Index == 8) {

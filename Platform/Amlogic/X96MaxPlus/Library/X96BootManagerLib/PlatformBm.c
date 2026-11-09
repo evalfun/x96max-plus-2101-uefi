@@ -17,6 +17,7 @@
 #include <Library/CapsuleLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/HobLib.h>
+#include <MesonSdDiag.h>
 #include <Library/PcdLib.h>
 #include <Library/UefiBootManagerLib.h>
 #include <Library/UefiLib.h>
@@ -1311,16 +1312,9 @@ PlatformBootManagerAfterConsole (
   )
 {
   EFI_STATUS                           DiagStatus;
-  STATIC EFI_GUID  X96SdDiagGuid = {
-    0x25b7b0e4, 0x8c11, 0x435e, { 0x9d, 0x7b, 0x62, 0xef, 0xf9, 0x77, 0xd1, 0x72 }
-  };
-  UINT8                                Diag[96];
+  UINT8                                Diag[256];
   UINTN                                DiagSize;
-  UINT32                               Attempts;
-  UINT32                               LastStatus;
-  UINT32                               Csd[4];
-  UINT32                               ClockHz;
-  UINT32                               Echo;
+  MESON_SD_DIAG_VAR                    D;
 
   //
   // The SD host exported its identification diagnostics as a boot-services
@@ -1328,31 +1322,39 @@ PlatformBootManagerAfterConsole (
   // observable path on serial-less units.
   //
   DiagSize = sizeof (Diag);
-  DiagStatus = gRT->GetVariable (L"X96SdDiag", &X96SdDiagGuid, NULL, &DiagSize, Diag);
+  DiagStatus = gRT->GetVariable (MESON_SD_DIAG_VARIABLE, &mMesonSdDiagGuid, NULL, &DiagSize, Diag);
   if (!EFI_ERROR (DiagStatus)) {
-    CopyMem (&ClockHz, &Diag[8], sizeof (ClockHz));
-    CopyMem (&Echo, &Diag[12], sizeof (Echo));
-    CopyMem (&Attempts, &Diag[40], sizeof (Attempts));
-    CopyMem (&LastStatus, &Diag[44], sizeof (LastStatus));
+    CopyMem (&D, Diag, DiagSize);
     Print (
-      L"X96 SD diag: tuned=%u co=%u tx=%u clk=%uHz attempts=%u last-status=0x%x echo=%08x\n",
-      Diag[0],
-      Diag[1],
-      Diag[2],
-      ClockHz,
-      Attempts,
-      LastStatus,
-      Echo
+      L"X96 SD: magic=%x tuned=%u co=%u tx=%u clk=%uHz attempts=%u last-st=%x\n",
+      D.Magic,
+      D.Tuned,
+      D.Co,
+      D.Tx,
+      D.ClockHz,
+      D.Attempts,
+      D.LastStatus
       );
-    CopyMem (Csd, &Diag[20], sizeof (Csd));
     Print (
-      L"X96 SD CSD: %016x %016x\n",
-      ((UINT64)Csd[1] << 32) | Csd[0],
-      ((UINT64)Csd[3] << 32) | Csd[2]
+      L"X96 SD: echo=%08x ocr=%08x csd=%08x,%08x,%08x,%08x\n",
+      D.EchoR0,
+      D.Ocr,
+      *((UINT32 *)D.Csd),
+      *((UINT32 *)(D.Csd + 4)),
+      *((UINT32 *)(D.Csd + 8)),
+      *((UINT32 *)(D.Csd + 12))
+      );
+    Print (
+      L"X96 SD: cid=%08x,%08x,%08x,%08x cmdtrace=%016lx last-cmd=%u\n",
+      D.Cid[0],
+      D.Cid[1],
+      D.Cid[2],
+      D.Cid[3],
+      D.CmdTrace,
+      D.LastCmd
       );
   }
-
-  EFI_STATUS                    Status;
+    EFI_STATUS                    Status;
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
   UINTN                         FirmwareVerLength;
   UINTN                         PosX;
