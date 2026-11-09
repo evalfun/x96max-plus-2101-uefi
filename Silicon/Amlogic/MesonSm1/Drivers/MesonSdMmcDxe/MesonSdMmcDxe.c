@@ -675,10 +675,19 @@ MesonTuneSdIdentificationClock (
   UINTN       Tx;
   UINTN       Ready;
 
-  ZeroMem (&mSdDiag, sizeof (mSdDiag));
-  mSdDiag.Magic   = 0x21583936;
-  mSdDiag.Tuned   = 0;
-  mSdDiag.ClockHz = IDENTIFICATION_CLOCK;
+  //
+  // Fresh scan, but do not clobber the MmcDxe state-machine trace recorded
+  // so far: the state mask and the command trace survive tuner re-runs.
+  //
+  {
+    UINT64  KeepTrace = mSdDiag.CmdTrace;
+
+    ZeroMem (&mSdDiag, sizeof (mSdDiag));
+    mSdDiag.Magic    = 0x21583936;
+    mSdDiag.Tuned    = 0;
+    mSdDiag.ClockHz  = IDENTIFICATION_CLOCK;
+    mSdDiag.CmdTrace = KeepTrace;
+  }
   MesonPublishSdDiag ();
 
   Tuned = FALSE;
@@ -1152,18 +1161,28 @@ MesonNotifyState (
   MESON_MMC_HOST  *Host;
 
   Host = MESON_MMC_FROM_PROTOCOL (This);
-  if (State == MmcHwInitializationState) {
-    mSdDiag.NotifyCount++;
-    mSdDiag.LastState = (UINT32)State;
-    Status            = MesonHardwareInit (Host);
-    MesonPublishSdDiag ();
-    return Status;
+  if (Host->IsEmmc) {
+    if (State == MmcHwInitializationState) {
+      return MesonHardwareInit (Host);
+    }
+
+    return EFI_SUCCESS;
   }
 
+  //
+  // SD-host diagnostics: the shared variable records only this host; the
+  // eMMC's own progress must not fold into it.
+  //
   mSdDiag.NotifyCount++;
-  mSdDiag.LastState = (UINT32)State;
+  mSdDiag.LastState = State;
+  mSdDiag.StateMask |= (1U << State);
+  if (State == MmcHwInitializationState) {
+    Status = MesonHardwareInit (Host);
+  } else {
+    Status = EFI_SUCCESS;
+  }
   MesonPublishSdDiag ();
-  return EFI_SUCCESS;
+  return Status;
 }
 
 STATIC

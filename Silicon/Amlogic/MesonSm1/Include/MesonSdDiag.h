@@ -35,8 +35,9 @@ typedef struct {
   UINT32  Cid[4];       // [44] CMD2 (R2) words of the (attempted) phase
   UINT64  CmdTrace;     // [60] bitmask of every CMD index the SD host saw
   UINT32  LastCmd;      // [68] last command index issued on the SD host
-  UINT32  NotifyCount;  // [72] MmcNotifyState transition count
+  UINT32  NotifyCount;  // [72] MmcNotifyState transition count (SD host only)
   UINT32  LastState;    // [76] last MMC_STATE reached via NotifyState
+  UINT32  StateMask;    // [80] OR of every MMC_STATE bit the SD host saw
   UINT32  RawRegs[16];  // [72] controller 0x40..0x7C as the vendor chain left it
 } MESON_SD_DIAG_VAR;
 #pragma pack ()
