@@ -1760,6 +1760,45 @@ PlatformBootManagerWaitCallback (
   if (EFI_ERROR (Status)) {
     Print (L".");
   }
+
+  //
+  // Live SD-diagnostic snapshot during the countdown: by this point BDS
+  // has run the connect-all pass, so MmcDxe is bound if it ever will be
+  // and the 200 ms card-detect timer has had ticks.  Print only when the
+  // observed triple changes so the screen is not flooded.  This is the
+  // only observable path on serial-less units.
+  //
+  {
+    STATIC UINTN      PrevKey = MAX_UINTN;
+    EFI_STATUS        DiagStatus;
+    UINTN             DiagSize;
+    UINT8             Diag[256];
+    MESON_SD_DIAG_VAR D;
+    UINTN             Key;
+
+    DiagSize   = sizeof (Diag);
+    DiagStatus = gRT->GetVariable (
+                        MESON_SD_DIAG_VARIABLE,
+                        &mMesonSdDiagGuid,
+                        NULL,
+                        &DiagSize,
+                        Diag
+                        );
+    if (!EFI_ERROR (DiagStatus)) {
+      CopyMem (&D, Diag, sizeof (D));
+      Key = D.NotifyCount | (D.CardPolls << 12) | (D.StateMask << 28);
+      if (Key != PrevKey) {
+        PrevKey = Key;
+        Print (
+          L"X96 SD tick: notifies=%u polls=%u last-state=%u statemask=%08x\n",
+          D.NotifyCount,
+          D.CardPolls,
+          D.LastState,
+          D.StateMask
+          );
+      }
+    }
+  }
 }
 
 /**
