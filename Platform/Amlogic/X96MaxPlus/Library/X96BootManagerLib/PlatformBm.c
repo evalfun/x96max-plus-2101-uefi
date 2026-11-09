@@ -1330,10 +1330,10 @@ PlatformBootManagerAfterConsole (
   DiagSize = sizeof (Diag);
   DiagStatus = gRT->GetVariable (L"X96SdDiag", &X96SdDiagGuid, NULL, &DiagSize, Diag);
   if (!EFI_ERROR (DiagStatus)) {
-    ClockHz = Diag[4] | (Diag[5] << 8) | (Diag[6] << 16) | ((UINT32)Diag[7] << 24);
-    Echo    = Diag[8] | (Diag[9] << 8) | (Diag[10] << 16) | ((UINT32)Diag[11] << 24);
-    Attempts   = Diag[36] | (Diag[37] << 8) | (Diag[38] << 16) | ((UINT32)Diag[39] << 24);
-    LastStatus = Diag[40] | (Diag[41] << 8) | (Diag[42] << 16) | ((UINT32)Diag[43] << 24);
+    CopyMem (&ClockHz, &Diag[8], sizeof (ClockHz));
+    CopyMem (&Echo, &Diag[12], sizeof (Echo));
+    CopyMem (&Attempts, &Diag[40], sizeof (Attempts));
+    CopyMem (&LastStatus, &Diag[44], sizeof (LastStatus));
     Print (
       L"X96 SD diag: tuned=%u co=%u tx=%u clk=%uHz attempts=%u last-status=0x%x echo=%08x\n",
       Diag[0],
@@ -1344,7 +1344,7 @@ PlatformBootManagerAfterConsole (
       LastStatus,
       Echo
       );
-    CopyMem (Csd, &Diag[12], sizeof (Csd));
+    CopyMem (Csd, &Diag[20], sizeof (Csd));
     Print (
       L"X96 SD CSD: %016x %016x\n",
       ((UINT64)Csd[1] << 32) | Csd[0],

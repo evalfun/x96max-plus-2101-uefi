@@ -639,6 +639,7 @@ MesonSetClockPhase (
 STATIC EFI_GUID  mX96SdDiagGuid =
   { 0x25b7b0e4, 0x8c11, 0x435e, { 0x9d, 0x7b, 0x62, 0xef, 0xf9, 0x77, 0xd1, 0x72 } };
 
+#pragma pack (1)
 typedef struct {
   UINT32  Magic;        // 'X96!' = 0x21583936
   UINT8   Tuned;        // phase search locked
@@ -651,7 +652,9 @@ typedef struct {
   UINT32  Ocr;          // ACMD41 OCR word
   UINT32  Attempts;     // CMD8 probes issued by the tuner
   UINT32  LastStatus;   // EFI_STATUS of the last CMD8 probe
+  UINT32  Cid[4];       // CMD2 (R2 long) words of the locked phase
 } X96_SD_DIAG;
+#pragma pack ()
 
 STATIC X96_SD_DIAG  mSdDiag;
 STATIC BOOLEAN      mSdDiagCsdCaptured;
@@ -680,13 +683,11 @@ MesonTuneSdIdentificationClock (
   STATIC CONST UINT32  Clocks[] = { IDENTIFICATION_CLOCK, 200000 };
   EFI_STATUS  Status;
   BOOLEAN     Tuned;
+  BOOLEAN     Plausible;
   UINTN       ClockIdx;
   UINTN       Co;
   UINTN       Tx;
-
-  if (MesonExecuteCommand (Host, MMC_CMD0, 0, NULL, 0, FALSE) != EFI_SUCCESS) {
-    DEBUG ((DEBUG_ERROR, "MesonMMC@%lx: SD tuning CMD0 failed\n", Host->Base));
-  }
+  UINTN       Ready;
 
   ZeroMem (&mSdDiag, sizeof (mSdDiag));
   mSdDiag.Magic   = 0x21583936;
@@ -699,35 +700,98 @@ MesonTuneSdIdentificationClock (
     for (Co = 0; !Tuned && (Co < 4); Co++) {
       for (Tx = 0; !Tuned && (Tx < 4); Tx++) {
         MesonSetClockPhase (Host, Clocks[ClockIdx], Co, Tx);
-        Status = MesonExecuteCommand (Host, MMC_CMD8, 0x1AA, NULL, 0, FALSE);
+
+        //
+        // CMD8: argument echo back, byte-reversed in the response
+        // register.  The R7 wire format is 0x000001AA for argument 0x1AA
+        // (meson stores the response right-shifted by byte).
+        //
         mSdDiag.Attempts++;
-        mSdDiag.LastStatus = (UINT32)Status;
-        if (!EFI_ERROR (Status) && (((Host->Response[0] >> 8) & 0xFF) == 0xAA)) {
-          Tuned              = TRUE;
-          mSdDiag.Tuned      = 1;
-          mSdDiag.Co         = Co;
-          mSdDiag.Tx         = Tx;
-          mSdDiag.ClockHz    = Clocks[ClockIdx];
-          mSdDiag.EchoR0     = Host->Response[0];
-          mSdDiag.Magic        = 0x21583936;
-          MesonPublishSdDiag ();
-          DEBUG ((
-            DEBUG_INFO,
-            "MesonMMC@%lx: SD phase locked co=%u tx=%u clk=%uHz\n",
-            Host->Base,
-            Co,
-            Tx,
-            Clocks[ClockIdx]
-            ));
+        if (MesonExecuteCommand (Host, MMC_CMD0, 0, NULL, 0, FALSE) != EFI_SUCCESS) {
+          mSdDiag.LastStatus = (UINT32) -1;
+          continue;
         }
+
+        Status = MesonExecuteCommand (Host, MMC_CMD8, 0x1AA, NULL, 0, FALSE);
+        mSdDiag.LastStatus = (UINT32)Status;
+        if (EFI_ERROR (Status) || (Host->Response[0] != 0x000001AA)) {
+          continue;
+        }
+
+        mSdDiag.EchoR0 = Host->Response[0];
+
+        //
+        // Bring the card to ready state, then read the CID -- an R2 long
+        // response, which is the response form whose sampling we actually
+        // need to certify (CMD9/CSD long responses carry the geometry).
+        //
+        Ready = 0;
+        do {
+          if ((MesonExecuteCommand (Host, MMC_CMD55, 0, NULL, 0, FALSE) != EFI_SUCCESS) ||
+              (MesonExecuteCommand (
+                 Host,
+                 MMC_ACMD41,
+                 0x40FF8000,
+                 NULL,
+                 0,
+                 FALSE
+                 ) != EFI_SUCCESS))
+          {
+            break;
+          }
+        } while (((Host->Response[0] & 0xFF) != 0x00) && (++Ready < 32));
+
+        if (Host->Response[0] != 0) {
+          mSdDiag.Ocr = Host->Response[0];
+        }
+
+        Status = MesonExecuteCommand (Host, MMC_CMD2, 0, NULL, 0, FALSE);
+        if (EFI_ERROR (Status)) {
+          mSdDiag.LastStatus = (UINT32)Status;
+          continue;
+        }
+
+        CopyMem (mSdDiag.Cid, &Host->Response[0], sizeof (mSdDiag.Cid));
+        mSdDiag.LastStatus = 0;
+
+        //
+        // Plausibility: the CID's first byte on the wire is the
+        // manufacturer id (nonzero), and the serial word is nonzero.
+        // Wrong-phase sampling tends to deliver zeros.
+        //
+        CopyMem (mSdDiag.Csd, &Host->Response[0], sizeof (mSdDiag.Csd));
+        Plausible =
+          ((mSdDiag.Cid[0] & 0xFF000000) != 0) &&
+          ((mSdDiag.Cid[3] != 0) && (mSdDiag.Cid[3] != 0xFFFFFFFF));
+        if (!Plausible) {
+          continue;
+        }
+
+        Tuned              = TRUE;
+        mSdDiag.Tuned      = 1;
+        mSdDiag.Co         = Co;
+        mSdDiag.Tx         = Tx;
+        mSdDiag.ClockHz    = Clocks[ClockIdx];
+        DEBUG ((
+          DEBUG_INFO,
+          "MesonMMC@%lx: SD phase locked co=%u tx=%u clk=%u (CID %08x %08x %08x %08x)\n",
+          Host->Base,
+          Co,
+          Tx,
+          Clocks[ClockIdx],
+          mSdDiag.Cid[0],
+          mSdDiag.Cid[1],
+          mSdDiag.Cid[2],
+          mSdDiag.Cid[3]
+          ));
       }
     }
   }
 
   if (!Tuned) {
     //
-    // No phase produced a valid echo (or the card predates CMD8).  Leave
-    // the driver's proven default phase in place.
+    // No phase produced a plausible CID.  Leave the driver's proven default
+    // phase in place so MmcDxe still sees a responsive host.
     //
     MesonSetClockPhase (Host, IDENTIFICATION_CLOCK, 2, 0);
   }
