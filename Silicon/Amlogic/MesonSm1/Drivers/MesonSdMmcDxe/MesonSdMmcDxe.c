@@ -1079,14 +1079,23 @@ MesonIsCardPresent (
   IN EFI_MMC_HOST_PROTOCOL  *This
   )
 {
-  MESON_MMC_HOST  *Host;
+    MESON_MMC_HOST  *Host;
 
   Host = MESON_MMC_FROM_PROTOCOL (This);
   if (Host->IsEmmc) {
     return TRUE;
   }
 
-  return (MmioRead32 (PERIPHS_GPIO_C_IN) & GPIOC_6_BIT) == 0;
+  //
+  // The card-detect pad is board-specific (the VIM3 policy reads GPIOC_6
+  // and hardwires its answer); on X96 Max+ units that wiring is not
+  // trustworthy, and when the gate from IsCardPresent() returns the wrong
+  // answer EmbeddedPkg's MmcDxe never even starts identification
+  // (symptom seen: a block handle with stock-default geometry and zero
+  // NotifyState transitions).  Let the identification itself decide: a
+  // present card answers CMD0/ACMD41, an absent slot fails cleanly there.
+  //
+  return TRUE;
 }
 
 STATIC
