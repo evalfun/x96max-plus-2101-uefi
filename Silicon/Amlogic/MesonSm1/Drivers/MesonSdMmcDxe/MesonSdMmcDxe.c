@@ -806,6 +806,21 @@ MesonHardwareInit (
     Host->Base
     ));
 
+  if (!Host->IsEmmc) {
+    //
+    // Capture the register window as the vendor chain left it, before we
+    // normalise anything: the working delays for this unit are visible in
+    // the boot-sales console photo.
+    //
+    UINTN  RegIdx;
+
+    for (RegIdx = 0; RegIdx < 16; RegIdx++) {
+      mSdDiag.RawRegs[RegIdx] = MmioRead32 (Host->Base + 0x40 + RegIdx * 4);
+    }
+
+    MesonPublishSdDiag ();
+  }
+
   Host->AppCommand  = FALSE;
   Host->AddressingKnown = FALSE;
   Host->SectorAddressed = FALSE;

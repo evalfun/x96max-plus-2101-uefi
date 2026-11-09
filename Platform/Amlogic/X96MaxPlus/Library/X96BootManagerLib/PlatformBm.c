@@ -1353,6 +1353,24 @@ PlatformBootManagerAfterConsole (
       D.CmdTrace,
       D.LastCmd
       );
+    Print (L"X96 SD raw[0-7] :");
+    {
+      UINTN  RawIdx;
+
+      for (RawIdx = 0; RawIdx < 8; RawIdx++) {
+        Print (L" %08x", D.RawRegs[RawIdx]);
+      }
+    }
+    Print (L"\n");
+    Print (L"X96 SD raw[8-15]:");
+    {
+      UINTN  RawIdx;
+
+      for (RawIdx = 8; RawIdx < 16; RawIdx++) {
+        Print (L" %08x", D.RawRegs[RawIdx]);
+      }
+    }
+    Print (L"\n");
   }
     EFI_STATUS                    Status;
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
