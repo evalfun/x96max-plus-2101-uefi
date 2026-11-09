@@ -1139,13 +1139,21 @@ MesonNotifyState (
   IN MMC_STATE              State
   )
 {
+  EFI_STATUS      Status;
   MESON_MMC_HOST  *Host;
 
   Host = MESON_MMC_FROM_PROTOCOL (This);
   if (State == MmcHwInitializationState) {
-    return MesonHardwareInit (Host);
+    mSdDiag.NotifyCount++;
+    mSdDiag.LastState = (UINT32)State;
+    Status            = MesonHardwareInit (Host);
+    MesonPublishSdDiag ();
+    return Status;
   }
 
+  mSdDiag.NotifyCount++;
+  mSdDiag.LastState = (UINT32)State;
+  MesonPublishSdDiag ();
   return EFI_SUCCESS;
 }
 

@@ -1353,6 +1353,11 @@ PlatformBootManagerAfterConsole (
       D.CmdTrace,
       D.LastCmd
       );
+    Print (
+      L"X96 SD: notifies=%u last-state=%u\n",
+      D.NotifyCount,
+      D.LastState
+      );
     Print (L"X96 SD raw[0-7] :");
     {
       UINTN  RawIdx;
