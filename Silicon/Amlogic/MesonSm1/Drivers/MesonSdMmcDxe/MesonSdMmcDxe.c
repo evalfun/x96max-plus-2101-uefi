@@ -710,35 +710,42 @@ MesonTuneSdIdentificationClock (
         // Bring the card to ready state, then read the CID -- an R2 long
         // response, which is the response form whose sampling we actually
         // need to certify (CMD9/CSD long responses carry the geometry).
+        // The ready test is OCR bit 31 (0x80000000), per the wire-msb-first
+        // word semantics observed in the response registers.
         //
         Ready = 0;
         do {
-          if ((MesonExecuteCommand (Host, MMC_CMD55, 0, NULL, 0, FALSE) != EFI_SUCCESS) ||
-              (MesonExecuteCommand (
-                 Host,
-                 MMC_ACMD41,
-                 0x40FF8000,
-                 NULL,
-                 0,
-                 FALSE
-                 ) != EFI_SUCCESS))
-          {
+          if (MesonExecuteCommand (Host, MMC_CMD55, 0, NULL, 0, FALSE) != EFI_SUCCESS) {
+            mSdDiag.LastStatus = (UINT32)EFI_NO_RESPONSE;
             break;
           }
-        } while (((Host->Response[0] & 0xFF) != 0x00) && (++Ready < 32));
 
-        if (Host->Response[0] != 0) {
-          mSdDiag.Ocr = Host->Response[0];
-        }
+          if (MesonExecuteCommand (Host, MMC_ACMD41, 0x40FF8000, NULL, 0, FALSE) != EFI_SUCCESS) {
+            mSdDiag.LastStatus = (UINT32)EFI_NO_RESPONSE;
+            break;
+          }
+        } while (((Host->Response[0] & 0x80000000) == 0) && (++Ready < 32));
 
-        Status = MesonExecuteCommand (Host, MMC_CMD2, 0, NULL, 0, FALSE);
-        if (EFI_ERROR (Status)) {
-          mSdDiag.LastStatus = (UINT32)Status;
+        mSdDiag.Ocr = Host->Response[0];
+        mSdDiag.Co  = Co;
+        mSdDiag.Tx  = Tx;
+        MesonPublishSdDiag ();
+
+        if ((Host->Response[0] & 0x80000000) == 0) {
+          mSdDiag.LastStatus = (UINT32)EFI_NO_RESPONSE;
           continue;
         }
 
-        CopyMem (mSdDiag.Cid, &Host->Response[0], sizeof (mSdDiag.Cid));
-        mSdDiag.LastStatus = 0;
+        Status = MesonExecuteCommand (Host, MMC_CMD2, 0, NULL, 0, FALSE);
+        mSdDiag.LastStatus = (UINT32)Status;
+        if (!EFI_ERROR (Status)) {
+          CopyMem (mSdDiag.Cid, &Host->Response[0], sizeof (mSdDiag.Cid));
+        }
+
+        MesonPublishSdDiag ();
+        if (EFI_ERROR (Status)) {
+          continue;
+        }
 
         //
         // Plausibility: the CID's first byte on the wire is the
