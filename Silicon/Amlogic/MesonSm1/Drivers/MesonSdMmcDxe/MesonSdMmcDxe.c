@@ -1257,37 +1257,41 @@ MesonSendCommand (
 
   if (!Host->IsEmmc && (Index == 3)) {
     //
-    // RCA probe: the RCA field of the CMD3/R6 response has been observed
-    // to latch alternating garbage (0xAAAA) on this unit while the status
-    // field still looks real, which poisons every RCA-addressed command
-    // (CMD9/CSD => BlockSize 256 => no FAT mount).  Record everything and
-    // retry once when the known-bad sentinel shows up.
+    // RCA assignment, done properly instead of trusting the observed
+    // response.  EmbeddedPkg issues CMD3 with argument 0x00000001, i.e.
+    // it asks for RCA 0x0000 -- an illegal request some cards answer
+    // with an arbitrary (and here, incrementing) RCA while the status
+    // field stays real.  Every RCA-addressed command then misses
+    // (CMD9 => garbage CSD => BlockSize 256 => no FAT mount).
     //
-    mSdDiag.Cmd3Arg = Argument;
-    mSdDiag.Cmd3R0  = Host->Response[0];
-    mSdDiag.Cmd3R1  = Host->Response[1];
+    // Ask for RCA 1 when the request is zero, and always report the
+    // requested RCA in the response: the card does take it (status goes
+    // ready->standby across retries), only the RCA field of the wire
+    // response is untrustworthy.
+    //
+    UINT32  UseArg    = Argument;
+    UINT32  Requested = (Argument >> 16) & 0xFFFF;
+
+    if (Requested == 0) {
+      UseArg = Argument | 0x00010000;
+    }
+
+    mSdDiag.Cmd3Arg = UseArg;
+    Status = MesonExecuteCommand (Host, Cmd, UseArg, NULL, 0, FALSE);
+    mSdDiag.Cmd3R0 = Host->Response[0];
+    mSdDiag.Cmd3R1 = Host->Response[1];
 
     DEBUG ((
       DEBUG_ERROR,
-      "MesonMMC@%lx: CMD3 arg=%08x resp=%08x/%08x\n",
+      "MesonMMC@%lx: CMD3 arg=%08x resp=%08x/%08x -> rca=%04x\n",
       Host->Base,
-      Argument,
+      UseArg,
       Host->Response[0],
-      Host->Response[1]
+      Host->Response[1],
+      UseArg >> 16
       ));
 
-    if (((Host->Response[0] >> 16) == 0xAAAA) && (Argument != 0)) {
-      mSdDiag.Cmd3Retries++;
-      Status = MesonExecuteCommand (Host, Cmd, Argument, NULL, 0, FALSE);
-      DEBUG ((
-        DEBUG_ERROR,
-        "MesonMMC@%lx: CMD3 retry resp=%08x/%08x\n",
-        Host->Base,
-        Host->Response[0],
-        Host->Response[1]
-        ));
-    }
-
+    Host->Response[0] = ((UseArg >> 16) << 16) | (Host->Response[0] & 0xFFFF);
     MesonPublishSdDiag ();
   }
 
