@@ -1255,6 +1255,20 @@ MesonSendCommand (
   Host->PendingValid = FALSE;
   Status = MesonExecuteCommand (Host, Cmd, Argument, NULL, 0, FALSE);
 
+  if (Host->IsEmmc && ((Index == 2) || (Index == 9))) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "MesonMMC@%lx: eMMC CMD%u arg=%08x resp=%08x/%08x/%08x/%08x\n",
+      Host->Base,
+      Index,
+      Argument,
+      Host->Response[0],
+      Host->Response[1],
+      Host->Response[2],
+      Host->Response[3]
+      ));
+  }
+
   if (!Host->IsEmmc && ((Index == 7) || (Index == 9) || (Index == 10) || (Index == 13))) {
     DEBUG ((
       DEBUG_ERROR,
@@ -1342,10 +1356,31 @@ MesonReceiveResponse (
 
   Host = MESON_MMC_FROM_PROTOCOL (This);
   if (Type == MMC_RESPONSE_TYPE_R2) {
-    Buffer[0] = Host->Response[3];
-    Buffer[1] = Host->Response[2];
-    Buffer[2] = Host->Response[1];
-    Buffer[3] = Host->Response[0];
+    //
+    // Word order for 136-bit responses.  The registers latch the payload
+    // MSW-last: CMD_RSP3 holds CSD/CID bits [127:96] ... CMD_RSP0 bits
+    // [31:0].  EmbeddedPkg's CSD macros expect exactly that natural order
+    // (MMC_CSD_GET_CCC uses Response[2]>>20 = CSD bits [95:84], verified
+    // against a real Samsung SDHC CSD captured live: CCC 0x5B5,
+    // read_bl_len 9 -> 512).  The historical byte-order reversal that
+    // made unit #1 parse 512 was luck: it fed CSD[47:44] into the
+    // read_bl_len nibble, and that card happened to carry 9 there --
+    // this unit's card carries 8, parsing 256 and killing the FAT mount.
+    //
+    // The eMMC host keeps the historical reversal until its own CMD2/CMD9
+    // words are captured (probes below) and the same check is done.
+    //
+    if (Host->IsEmmc) {
+      Buffer[0] = Host->Response[3];
+      Buffer[1] = Host->Response[2];
+      Buffer[2] = Host->Response[1];
+      Buffer[3] = Host->Response[0];
+    } else {
+      Buffer[0] = Host->Response[0];
+      Buffer[1] = Host->Response[1];
+      Buffer[2] = Host->Response[2];
+      Buffer[3] = Host->Response[3];
+    }
   } else {
     Buffer[0] = Host->Response[0];
   }
