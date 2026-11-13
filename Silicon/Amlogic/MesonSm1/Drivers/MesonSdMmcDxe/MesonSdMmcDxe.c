@@ -1283,29 +1283,27 @@ MesonSendCommand (
     // ready->standby across retries), only the RCA field of the wire
     // response is untrustworthy.
     //
-    UINT32  UseArg    = Argument;
-    UINT32  Requested = (Argument >> 16) & 0xFFFF;
-
-    if (Requested == 0) {
-      UseArg = Argument | 0x00010000;
-    }
-
-    mSdDiag.Cmd3Arg = UseArg;
-    Status = MesonExecuteCommand (Host, Cmd, UseArg, NULL, 0, FALSE);
-    mSdDiag.Cmd3R0 = Host->Response[0];
-    mSdDiag.Cmd3R1 = Host->Response[1];
+    //
+    // This unit's card ignores RCA requests (probed: asking for RCA 0
+    // answers 0xAAAA, RCA 1 answers 0xAAAB, and CMD9/CMD13 addressed to
+    // our reported RCA time out unanswered).  The RCA field of the wire
+    // response is what the card actually listens on, so pass it through
+    // untouched and let MmcDxe address that RCA.
+    //
+    mSdDiag.Cmd3Arg = Argument;
+    mSdDiag.Cmd3R0  = Host->Response[0];
+    mSdDiag.Cmd3R1  = Host->Response[1];
 
     DEBUG ((
       DEBUG_ERROR,
-      "MesonMMC@%lx: CMD3 arg=%08x resp=%08x/%08x -> rca=%04x\n",
+      "MesonMMC@%lx: CMD3 arg=%08x resp=%08x/%08x (wire rca=%04x)\n",
       Host->Base,
-      UseArg,
+      Argument,
       Host->Response[0],
       Host->Response[1],
-      UseArg >> 16
+      Host->Response[0] >> 16
       ));
 
-    Host->Response[0] = ((UseArg >> 16) << 16) | (Host->Response[0] & 0xFFFF);
     MesonPublishSdDiag ();
   }
 
