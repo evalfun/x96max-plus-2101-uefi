@@ -82,6 +82,7 @@
 #define   CMD_CFG_DATA_WR    BIT19
 #define   CMD_CFG_RESP_NOCRC BIT20
 #define   CMD_CFG_RESP_128   BIT21
+#define   CMD_CFG_RESP_NUM   BIT22
 #define   CMD_CFG_CMD_INDEX_SHIFT 24
 #define   CMD_CFG_OWNER      BIT31
 #define SD_EMMC_CMD_ARG      0x54
@@ -920,6 +921,15 @@ MesonExecuteCommand (
   if ((Cmd & MMC_CMD_WAIT_RESPONSE) == 0) {
     Command |= CMD_CFG_NO_RESP;
   } else {
+    //
+    // CMD_CFG_RESP_NUM tells the controller a response is expected and
+    // that it should latch it -- mainline meson-gx-mmc sets this for
+    // every MMC_RSP_PRESENT command.  Without it the tail of responses
+    // (observed: the RCA field of CMD3/R6) latches stale alternating
+    // garbage while the low bits still look real.
+    //
+    Command |= CMD_CFG_RESP_NUM;
+
     if ((Cmd & MMC_CMD_LONG_RESPONSE) != 0) {
       Command |= CMD_CFG_RESP_128;
     }
@@ -1004,6 +1014,13 @@ MesonExecuteCommand (
   MmioWrite32 (Host->Base + SD_EMMC_STATUS, STATUS_CLEAR_MASK);
   ArmDataSynchronizationBarrier ();
   MmioWrite32 (Host->Base + SD_EMMC_CMD_CFG, Command);
+  //
+  // Clear the response registers before kicking the command, as mainline
+  // does: stale words from a previous 136-bit response otherwise survive
+  // in the latch and can be mistaken for (part of) a short response.
+  //
+  MmioWrite32 (Host->Base + SD_EMMC_CMD_RSP, 0);
+  ArmDataSynchronizationBarrier ();
   MmioWrite32 (Host->Base + SD_EMMC_CMD_ARG, Argument);
 
   Status = 0;
@@ -1044,18 +1061,6 @@ MesonExecuteCommand (
         mSdDiagCsdCaptured = TRUE;
         MesonPublishSdDiag ();
       }
-    }
-  }
-
-  if (!Host->IsEmmc && !mSdDiagCsdCaptured) {
-    if (Index == 8) {
-      mSdDiag.EchoR0 = Host->Response[0];
-    } else if (Index == 41) {
-      mSdDiag.Ocr    = Host->Response[0];
-    } else if (Index == 9) {
-      CopyMem (mSdDiag.Csd, &Host->Response[0], sizeof (mSdDiag.Csd));
-      mSdDiagCsdCaptured = TRUE;
-      MesonPublishSdDiag ();
     }
   }
 
