@@ -1796,6 +1796,19 @@ PlatformBootManagerWaitCallback (
           D.LastState,
           D.StateMask
           );
+        Print (
+          L"X96 SD tick: sd-cmds=%016lx last=%u   eMMC: n=%u st=%u mask=%08x\n",
+          D.CmdTrace,
+          D.LastCmd,
+          D.EmmcNotifyCount,
+          D.EmmcLastState,
+          D.EmmcStateMask
+          );
+        Print (
+          L"X96 SD tick: eMMC-cmds=%016lx last=%u\n",
+          D.EmmcCmdTrace,
+          D.EmmcLastCmd
+          );
       }
     }
   }

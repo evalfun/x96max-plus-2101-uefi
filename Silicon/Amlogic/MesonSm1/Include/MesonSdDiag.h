@@ -40,6 +40,11 @@ typedef struct {
   UINT32  StateMask;    // [80] OR of every MMC_STATE bit the SD host saw
   UINT32  CardPolls;    // [84] IsCardPresent calls (MmcDxe timer + binding liveness)
   UINT32  RawRegs[16];  // [88] controller 0x40..0x7C as the vendor chain left it
+  UINT32  EmmcNotifyCount; // [152] same counters for the eMMC host
+  UINT32  EmmcLastState;   // [156]
+  UINT32  EmmcStateMask;   // [160]
+  UINT32  EmmcLastCmd;     // [164]
+  UINT64  EmmcCmdTrace;    // [168] bitmask of CMD indices the eMMC host saw
 } MESON_SD_DIAG_VAR;
 #pragma pack ()
 

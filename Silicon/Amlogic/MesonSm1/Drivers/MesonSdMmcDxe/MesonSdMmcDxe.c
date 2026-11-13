@@ -1021,7 +1021,14 @@ MesonExecuteCommand (
   Host->Response[2] = MmioRead32 (Host->Base + SD_EMMC_CMD_RSP2);
   Host->Response[3] = MmioRead32 (Host->Base + SD_EMMC_CMD_RSP3);
 
-  if (!Host->IsEmmc) {
+  if (Host->IsEmmc) {
+    //
+    // Command trace of the eMMC host, kept apart from the SD host so a
+    // card-insertion diagnosis is never polluted by the on-board eMMC.
+    //
+    mSdDiag.EmmcCmdTrace |= (1ULL << (Index & 63));
+    mSdDiag.EmmcLastCmd   = Index;
+  } else {
     //
     // Command trace: every index the SD host ever saw, for the BDS diag.
     //
@@ -1168,6 +1175,10 @@ MesonNotifyState (
 
   Host = MESON_MMC_FROM_PROTOCOL (This);
   if (Host->IsEmmc) {
+    mSdDiag.EmmcNotifyCount++;
+    mSdDiag.EmmcLastState  = (UINT32)State;
+    mSdDiag.EmmcStateMask |= (1U << State);
+    MesonPublishSdDiag ();
     if (State == MmcHwInitializationState) {
       return MesonHardwareInit (Host);
     }
