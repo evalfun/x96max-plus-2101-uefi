@@ -1254,6 +1254,43 @@ MesonSendCommand (
 
   Host->PendingValid = FALSE;
   Status = MesonExecuteCommand (Host, Cmd, Argument, NULL, 0, FALSE);
+
+  if (!Host->IsEmmc && (Index == 3)) {
+    //
+    // RCA probe: the RCA field of the CMD3/R6 response has been observed
+    // to latch alternating garbage (0xAAAA) on this unit while the status
+    // field still looks real, which poisons every RCA-addressed command
+    // (CMD9/CSD => BlockSize 256 => no FAT mount).  Record everything and
+    // retry once when the known-bad sentinel shows up.
+    //
+    mSdDiag.Cmd3Arg = Argument;
+    mSdDiag.Cmd3R0  = Host->Response[0];
+    mSdDiag.Cmd3R1  = Host->Response[1];
+
+    DEBUG ((
+      DEBUG_ERROR,
+      "MesonMMC@%lx: CMD3 arg=%08x resp=%08x/%08x\n",
+      Host->Base,
+      Argument,
+      Host->Response[0],
+      Host->Response[1]
+      ));
+
+    if (((Host->Response[0] >> 16) == 0xAAAA) && (Argument != 0)) {
+      mSdDiag.Cmd3Retries++;
+      Status = MesonExecuteCommand (Host, Cmd, Argument, NULL, 0, FALSE);
+      DEBUG ((
+        DEBUG_ERROR,
+        "MesonMMC@%lx: CMD3 retry resp=%08x/%08x\n",
+        Host->Base,
+        Host->Response[0],
+        Host->Response[1]
+        ));
+    }
+
+    MesonPublishSdDiag ();
+  }
+
   if (!EFI_ERROR (Status) &&
       ((Host->IsEmmc && (Index == 1)) ||
        (!Host->IsEmmc && IsApplicationCommand && (Index == 41))))

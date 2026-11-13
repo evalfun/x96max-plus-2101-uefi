@@ -45,6 +45,10 @@ typedef struct {
   UINT32  EmmcStateMask;   // [160]
   UINT32  EmmcLastCmd;     // [164]
   UINT64  EmmcCmdTrace;    // [168] bitmask of CMD indices the eMMC host saw
+  UINT32  Cmd3Arg;         // [176] argument of the last CMD3 on the SD host
+  UINT32  Cmd3R0;          // [180] CMD_RSP latched for that CMD3
+  UINT32  Cmd3R1;          // [184] CMD_RSP1 latched for that CMD3
+  UINT32  Cmd3Retries;     // [188] times the RCA sentinel retry re-issued CMD3
 } MESON_SD_DIAG_VAR;
 #pragma pack ()
 
