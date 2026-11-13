@@ -49,20 +49,15 @@ rm -f out/.patchset-*.stamp
 
 ### `edk2/` — against `edk2-stable202605` (`b03a21a6`)
 
-| Patch | Module | Destiny |
-|---|---|---|
-| `0001-MmcDxe-fall-back-to-4-bit-eMMC` | `EmbeddedPkg/Universal/MmcDxe` | **Local forever.** The VIM3 reuses eMMC D4–D7 for the SPI NOR that holds UEFI variables, so eight-bit is physically unavailable. Board wiring, not a bug. |
-| `0002-UsbBusDxe-improve-USB-enumerating-process` | `MdeModulePkg/Bus/Usb/UsbBusDxe` | **Upstream candidate.** Robustness for slow or unusual enumeration; benefits any platform. |
-| `0003-RngDxe-reject-unavailable-raw-algorithm` | `SecurityPkg/RandomNumberGenerator/RngDxe` | **Upstream candidate.** Generic correctness fix. |
-| `0004-UiApp-show-both-CPU-clusters-on-the-front-page` | `MdeModulePkg/Application/UiApp` | **Cosmetic.** Carried for big.LITTLE readability; reconsider whether it earns its keep. |
-
-### `edk2-platforms/` — against `ae058185`
-
-| Patch | Module | Destiny |
-|---|---|---|
-| `0001-DwEmac-support-generic-Clause-22-PHYs` | `Silicon/Synopsys/DesignWare/Drivers/DwEmacSnpDxe` | **Upstream candidate.** Generic Clause-22 PHY support in a shared Synopsys driver. |
-| `0002-DwEmac-use-normal-descriptor-layout` | same | **Upstream candidate.** Descriptor-format correction. |
-
+| Patch | Touches | Disposition |
+| --- | --- | --- |
+| `0001-MmcDxe-SD-and-eMMC-robustness` | `EmbeddedPkg/Universal/MmcDxe` | Local. Card identification and state-machine fixes discovered while chasing the invisible-SD-card bug on X96 (`docs/sd-root-cause.md` in the platform repo). |
+| `0002-UsbBusDxe-enumeration` | `MdeModulePkg/Bus/Usb/UsbBusDxe` | Upstream candidate. Enumeration robustness on slow/unusual hubs. |
+| `0003-UiApp-frontpage` | `MdeModulePkg/Application/UiApp` | Local (VIM3 lineage: show both CPU clusters; X96 inherits it). |
+| `0004-RngDxe-arm` | `SecurityPkg/RngDxe` | Local. Reject unavailable raw RNG algorithms instead of failing the protocol install. |
+| `0005-ArmMmuLib-noncoherent` | `UefiCpuPkg/ArmMmuLib` | Local. Non-coherent DMA handling needed by our DWC3 host path. |
+| `0006-DefaultExceptionHandler-aarch64` | `ArmPkg` | Local. Prints more context on firmware faults. |
+| `0001-DwEmac-clause22-and-descriptors` | `edk2-platforms` `DwEmacSnpDxe` | Upstream candidate. Clause-22 PHY support + descriptor layout fix in the shared Synopsys driver. |
 Four of the six are generic fixes that belong upstream. Carrying a patch you
 intend to submit is normal; carrying one you never submit is how a fork rots.
 
