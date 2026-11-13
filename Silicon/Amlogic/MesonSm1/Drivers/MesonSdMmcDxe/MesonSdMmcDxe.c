@@ -1255,6 +1255,20 @@ MesonSendCommand (
   Host->PendingValid = FALSE;
   Status = MesonExecuteCommand (Host, Cmd, Argument, NULL, 0, FALSE);
 
+  if (!Host->IsEmmc && ((Index == 7) || (Index == 9) || (Index == 10) || (Index == 13))) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "MesonMMC@%lx: CMD%u arg=%08x resp=%08x/%08x/%08x/%08x\n",
+      Host->Base,
+      Index,
+      Argument,
+      Host->Response[0],
+      Host->Response[1],
+      Host->Response[2],
+      Host->Response[3]
+      ));
+  }
+
   if (!Host->IsEmmc && (Index == 3)) {
     //
     // RCA assignment, done properly instead of trusting the observed
