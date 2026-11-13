@@ -1,404 +1,150 @@
-# Khadas VIM3 EDK2
+# X96 Max+ UEFI firmware (S905X3 / Amlogic SM1)
 
-UEFI firmware for the Khadas VIM3 Pro (Amlogic A311D, G12B). EDK2 replaces
-U-Boot as BL33; the vendor BL2/DDR, BL30 and BL31 firmware is retained.
+UEFI (EDK2) firmware for the **X96 Max+ TV box** (Amlogic S905X3, SM1 family).
+EDK2 replaces the vendor U-Boot as the OS-facing bootloader; the vendor BL2,
+BL30 and BL31 are retained, so the boot chain stays stock up to the point
+where firmware takes over.
 
-The board boots Linux as an ordinary UEFI machine — GRUB or the EFI stub from
-an ESP, EFI variables, capsule update, SMBIOS — and can present its hardware
-to the OS as **either a DeviceTree or a full ACPI description**, selectable
-from the setup menu.
+> **谁会闲的蛋疼在电视盒子上跑 UEFI 呢？**
+> ——是的，没人会。这就是为什么这个仓库存在：一台 30 块钱的电视盒子，
+> 板载 4GB LPDDR4、千兆网卡、HDMI、USB3，唯一的问题是它的 bootloader 是
+> 一坨 2015 年的 U-Boot。现在它是一台正经的 UEFI 机器：GRUB 启动、
+> EFI 变量、SMBIOS、内核看到完整的 EFI runtime services。
+> 本仓库就是这份不理智的完整记录。
 
-## Read this first
+Deriving from [`gusbourg/vim3-edk2`](https://github.com/gusbourg/vim3-edk2)
+(Khadas VIM3 / A311D), re-targeted to the SM1 silicon and the X96 Max+
+platform, with the board-specific drivers written from scratch in this tree
+(SD/eMMC host, HDMI display, USB power rails, boot manager, booti-style Linux
+loader).
 
-**This is a hobby port with very limited testing.** It has been exercised by
-one person, on one board (a VIM3 Pro), against a handful of Linux
-distributions. It is not a product, it has not been tested broadly, and it
-has no meaningful user base to have shaken bugs out of it. Whole classes of
-configuration — other VIM3 variants, other peripherals, other operating
-systems, anything Windows — are simply unknown rather than known-good.
-
-Installing this replaces your bootloader. Read the recovery section below
-*before* you write anything to the board, and make sure you can get back.
-
-The VIM3's BootROM can always be reached over USB, which is what makes this
-relatively safe to experiment with — but "relatively" is doing real work in
-that sentence.
+**This is a hobby port.** Exercised by one person, on two boards of the same
+model, with one Linux distribution and one ophub kernel family. Your
+particular X96 box may differ from mine (X96 clones vary wildly). Installing
+this replaces your bootloader; recovery paths are documented below and you
+should read them *before* flashing anything.
 
 ## What works
 
-Exercised in both description modes: boot from eMMC/SD/USB/SPI, eMMC HS200,
-SD, SDIO Wi-Fi, Ethernet, USB2, USB3 (mass storage — see below), PCIe/NVMe,
-Mali G52 GPU, meson-drm KMS to 4K, hardware video decode (H.264, HEVC 8/10-bit,
-VP9, MPEG1/2), HDMI audio, HDMI CEC, GPIO, LEDs, buttons, SARADC, I²C, RTC,
-fan, CPU and DDR thermal, CPU DVFS, UART console, EFI runtime services, EFI
-variables in SPI NOR, and capsule update.
+Verified end to end on the target hardware:
 
-ACPI mode additionally provides CPU deep idle (`_LPI`), which DeviceTree mode
-cannot — no upstream Amlogic DT describes idle states on this SoC.
+| Piece | State |
+| --- | --- |
+| Boot from SD card (vendor-chain gate) | ✅ the supported install path |
+| Boot from eMMC boot partition (BL33 replacement) | ⚠️ blocked by vendor BL2 blob-size tables — see `docs/eMMC-flash-in.md` |
+| UEFI console on HDMI (GraphicsConsole + GOP) | ✅ |
+| UEFI console on serial (115200 8N1) | ✅ |
+| SD card: identification, FAT mount, FS0 | ✅ (after four stacked root causes — `docs/sd-root-cause.md`) |
+| USB keyboard | ✅ (USB mass storage enumeration: still flaky, deferred) |
+| booti-style Linux loader (`X96LinuxBoot.efi`) | ✅ kernel + initrd + cmdline via Shell script |
+| GRUB (grub-mkimage, arm64-efi) → Linux EFI stub | ✅ full boot, **with EFI runtime services** |
+| Linux EFI runtime (`efi: EFI v2.7 by TianoCore`) | ✅ MEMATTR/INITRD/MEMRESERVE tables all exported |
+| Zero-touch boot via `startup.nsh` on the card | ✅ — the boot policy is an editable text file, not firmware |
+| eMMC/USB/NVMe boot media | untested (priority low; the card path is the point) |
+| Capsule update, Secure Boot | not implemented |
 
-### Known limitations
+The proof of life, from a real boot (Armbian 6.18.59-ophub through GRUB and
+the kernel's own EFI stub):
 
-**USB3 is mass-storage-only (BOT, not UAS).** The G12 DWC3 xHCI wedges its
-command ring under concurrent bulk-stream traffic: UAS sync-write bursts
-stall completions, Stop Endpoint times out, and `xhci_hc_died` takes down
-both buses. We believe this is a defect in the SoC's stream engine rather
-than anything firmware does — it reproduces in DeviceTree mode on a stock
-kernel too — but we have no vendor confirmation, so treat that as our
-best reading of the evidence and not established fact. The ACPI description
-advertises `xhci-broken-streams-quirk`; patch `0013` reads it and sets
-`XHCI_BROKEN_STREAMS`, so `uas` declines the device and `usb-storage` takes
-it. In DeviceTree mode the same quirk is applied from the Amlogic glue
-compatible.
-
-Also: USB-C is left in host mode under ACPI. CVBS, DSI and suspend/resume are
-not implemented and are not planned.
-
-## Hardware description: ACPI or DeviceTree
-
-Set from the firmware setup menu, or via the `HwDescription` EFI variable
-(`0` = DeviceTree, `1` = ACPI). **DeviceTree is the default.**
-
-Only one description is ever published — in ACPI mode the DeviceTree
-configuration table is withheld, because an arm64 kernel offered both will
-silently prefer DT. This also makes the firmware EBBR-conformant, which
-requires exactly one.
-
-| | DeviceTree | ACPI |
-|---|---|---|
-| Kernel | **Stock, unmodified** | **Requires the patches in `patches/linux/`** |
-| Status | Default | Out-of-tree, more thinly tested |
-
-**ACPI mode does not work on an unpatched kernel.** This is not a bug to be
-reported — mainline has no ACPI support for any of this hardware, and the
-firmware cannot supply it. If you boot ACPI mode on a stock kernel you will
-get a machine with no storage, no display and no network. Use DeviceTree mode
-unless you specifically want to work on the ACPI side.
-
-Every ACPI patch is gated on `has_acpi_companion()` or the absence of
-`dev->of_node`, so the DeviceTree paths stay byte-identical and applying the
-series cannot regress DT mode.
-
-## Building
-
-Requires an EDK2 build environment and an aarch64 cross toolchain.
-
-```sh
-git submodule update --init --recursive
-./scripts/build.sh RELEASE
-./scripts/package-fip.sh RELEASE
+```
+[    0.000000] Machine model: AMedia X96 Max+
+[    0.000000] efi: EFI v2.7 by TianoCore / X96MaxPlus EDK2
+[    0.000000] efi: MEMATTR=0xf30b7418 INITRD=0xf2f81e98 MEMRESERVE=0xf2f81998
+[    0.000000] Reserved memory: created CMA memory pool at 0x00000000d7400000, size 256 MiB
 ```
 
-These are **one step** — packaging alone will ship a stale firmware volume.
-Use `DEBUG` in place of `RELEASE` for a debug build.
+## Boot flow
 
-Output lands in `out/RELEASE/`:
-
-| File | What it is |
-|---|---|
-| `VIM3_EFI.fd` | flat 4 MiB EDK2 BL33 |
-| `fip/u-boot.bin.sd.bin` | wrapped Amlogic SD/eMMC boot image |
-| `fip/u-boot.bin.sd.emmc.bin` | sector-padded boot-partition image |
-| `fip/u-boot.bin` | intermediate unwrapped payload — **do not write to boot media** |
-
-That last warning is load-bearing: the BootROM rejects the unwrapped payload
-with `CHK:1F`. The `.sd.bin` suffix marks the wrapped image, and packaging
-verifies the FIP-table signature at offset `0x10210`.
-
-Inputs are pinned to EDK2 `edk2-stable202605` and LibreELEC
-`amlogic-boot-fip` commit `42d3721`. Packaging refuses mismatched revisions
-or altered vendor-blob hashes. Because `aml_encrypt_g12b` produces randomised
-encrypted wrappers, a byte-identical FD does not reproduce the wrapper hash;
-each is recorded in `SHA256SUMS` instead.
-
-`build.sh` applies `patches/firmware/` into the pinned EDK2 and edk2-platforms
-submodules and **leaves them applied**, recording a stamp; the trees are
-re-synced only when a patch file changes or the patches are found missing.
-A dirty submodule after a build is therefore expected, not a problem. Patches
-may only modify tracked files — a guard enforces this, because re-sync could
-not undo an added or deleted file.
-
-## Installing
-
-Boot media, recovery and promotion are guarded by scripts under `scripts/`;
-each verifies the board, the target device identity and the candidate hash
-before writing. **Read the script before running it.** Scripts that act on a
-board over SSH require `VIM3_SSH_HOST=user@board-ip` in the environment and
-refuse to run without it.
-
-- `flash-vim3-sd.sh` — SD, using the Amlogic MBR write split
-- `promote-vim3-emmc-boot-partitions.sh` — eMMC boot0/boot1, hash-checked;
-  never opens the eMMC user area for writing
-- `promote-vim3-spi.sh` / `spi-backup.sh` / `spi-restore.sh` /
-  `provision-nor.sh` — SPI NOR maintenance
-- `stage-spi-maintenance-boot.sh` — arms a one-shot boot with `spifc` enabled,
-  needed before SPI NOR is visible as an mtd device
-- `gate-emmc-boot-partitions.sh` — BootROM gate check
-
-Capsule update is supported via `Vim3FmpDxe`.
-
-## Recovery
-
-The VIM3 can always be returned to USB MaskROM mode. With a data-capable USB-C
-cable to the host, **press the Function button three times in quick
-succession** — three fast presses within about two seconds. Do not hold it.
-Confirm on the host:
-
-```sh
-lsusb -d 1b8e:c003        # Amlogic GX-CHIP
+```
+BootROM ─▶ vendor BL2 (stock, untouched) ─▶ vendor BL30/BL31 ─▶ vendor U-Boot
+                                                                │
+                              SD card with boot_efi.flag + s905_autoscript
+                                                                │
+                                              fatload uefi.bin, `go`
+                                                                │
+                                                     EDK2 (this firmware)
+                                                                │
+                                          UEFI Shell ─▶ startup.nsh (editable)
+                                                                │
+                                          GRUB or X96LinuxBoot.efi ─▶ Linux
 ```
 
-If that device does not appear, the board is not in MaskROM — try the three
-presses again, faster. A charge-only USB-C cable is the other common cause.
+The firmware itself is never flashed into the box for the supported path:
+the vendor U-Boot stays in eMMC and hands over to EDK2 from the SD card.
+Removing the card boots whatever the vendor chain boots (Armbian/Android)
+— a clean way to keep both worlds on one box.
 
-A candidate can then be tested from RAM with no persistent write at all:
+## Build
+
+Requirements: Linux x86_64 host, `aarch64-linux-gnu-gcc`, `python3`, `make`,
+`git`, and the pinned submodules (`git submodule update --init --recursive`).
 
 ```sh
-sudo env PYTHONPATH="$PWD/third_party/pyamlboot" \
-  python3 third_party/pyamlboot/boot-g12.py --timeout 10 \
-  out/RELEASE/fip/u-boot.bin
+./scripts/build-x96.sh RELEASE      # → out/RELEASE/X96M_EFI.fd (0xE0000 bytes)
+./scripts/build-x96.sh DEBUG       # → out/DEBUG/X96M_EFI.fd  (serial debug)
+
+./scripts/package-x96-fip.sh RELEASE   # → out/RELEASE/fip/u-boot.bin.sd.bin (full FIP, for eMMC/recovery)
 ```
 
-A successful transfer ends with `[BL2 END]`, and the board comes up in the UEFI
-boot manager. Note this takes the **unwrapped** `u-boot.bin`, not `.sd.bin`.
-Power-cycle to get your previous bootloader back. **Do this before writing
-anything** — if the firmware runs from RAM it will run from flash.
+The build script:
 
-This is the reason bricking is difficult: the BootROM path does not depend on
-anything you can overwrite. `recover-vim3-uboot.sh` will write a known-good
-vendor U-Boot back to eMMC via Khadas' flash tool; pass it the image path, as
-the pinned image is not redistributed here.
+* pins and patches `third_party/edk2` + `edk2-platforms` (see
+  `patches/firmware/` — the submodules stay pristine upstream, our changes
+  are `git apply`ed at build time),
+* builds the firmware volume with our `Silicon/Amlogic/MesonSm1` and
+  `Platform/Amlogic/X96MaxPlus` packages,
+* wipes the FV work directory loudly every run, so nothing stale ever
+  survives a link.
 
-## Patches
+## Deploy (SD card, the supported way)
 
-`patches/` is not firmware — it is what the OS side needs.
+1. Format a card with a single FAT32 partition.
+2. Copy from `out/RELEASE/`: `X96M_EFI.fd` → `uefi.bin` on the card.
+3. Create an empty `boot_efi.flag` on the card.
+4. Copy `s905_autoscript` (built by the vendor toolchain, see `scripts/`).
+   This gate script is what the vendor U-Boot executes on boot: it
+   `fatload`s `uefi.bin` and jumps to it.
+5. Add your OS payload: either a `startup.nsh` (UEFI Shell script, the
+   default boot), or an ESP-style layout for GRUB — see
+   `docs/boot-with-grub.md` for a working GRUB recipe with both an
+   ophub kernel and a stock Debian kernel.
 
-### `patches/firmware/` — applied to EDK2 at build time
+A template card layout lives in the repo wiki / `docs/`.
 
-| Patch | What it does |
-|---|---|
-| `edk2/0001` | `MmcDxe`: fall back to a 4-bit eMMC bus. The VIM3 reuses eMMC D4–D7 for the SPI NOR that holds UEFI variables, so 8-bit is not available and every timing mode was being rejected. |
-| `edk2/0002` | `UsbBusDxe`: retry enumeration for slow or unusual devices. **Not our work** — by Jared Pan (Dell). |
-| `edk2/0003` | `RngDxe`: reject the raw algorithm when unavailable rather than reporting success. |
-| `edk2/0004` | `UiApp`: show both CPU clusters on the front page. |
-| `edk2-platforms/0001` | `DwEmac`: support generic Clause 22 PHYs. |
-| `edk2-platforms/0002` | `DwEmac`: use the normal descriptor layout. |
+## Repository layout
 
-### `patches/linux/` — required for ACPI mode
+```
+Silicon/Amlogic/MesonSm1       SM1 silicon: SD/eMMC host driver, HDMI, clocks
+Platform/Amlogic/X96MaxPlus    Board: boot manager, PrePi, Linux loader, USB
+Platform/Khadas/Vim3           the upstream VIM3 platform this derives from
+third_party/edk2               pinned tianocore/edk2 submodule (patched at build)
+third_party/edk2-platforms     pinned submodule (patched at build)
+third_party/amlogic-boot-fip   vendor FIP reference material
+patches/firmware/              the EDK2 patch set applied at build time
+fip-board/x96max-plus          vendor blob inputs + FIP packaging recipe
+scripts/                       build + package + deploy scripts
+docs/                          war stories: root-cause analyses, recipes
+```
 
-42 patches against 7.0.x, with 37 of them rebased for 6.18.x under
-`patches/linux/6.18/`, and the current 63-patch series against **v7.3-rc1**
-under `patches/linux/7.3/` (see below). Broadly:
+## Documentation
 
-**ACPI enablement (PRP0001 probe support).** Each PRP0001 device the firmware
-publishes needs its driver taught to probe without DeviceTree. Where a DT
-phandle cannot be expressed, the firmware pre-configures the hardware and
-states the facts as `_DSD` scalars.
+* [`docs/sd-root-cause.md`](docs/sd-root-cause.md) — how four stacked bugs
+  (board-specific card-detect gate, an ACMD41 ready-check typo, a card that
+  assigns its own RCA, and a reversed long-response word order) conspired to
+  make one SD card invisible, and the instrumentation that pinned each down.
+* [`docs/boot-with-grub.md`](docs/boot-with-grub.md) — building a
+  standalone GRUB for the card and booting mainline kernels through the
+  EFI stub.
+* [`docs/eMMC-flash-in.md`](docs/eMMC-flash-in.md) — what the eMMC boot
+  partition layout looks like, why replacing BL33 wholesale is currently
+  blocked, and what still works.
+* [`docs/hardware-notes.md`](docs/hardware-notes.md) — serial console, HDMI,
+  the USB rails, and other board trivia.
 
-| Patch | Driver / device |
-|---|---|
-| `0001` | mmc meson-gx — eMMC, SD, SDIO |
-| `0002` | thermal amlogic — CPU and DDR zones |
-| `0003` | i2c meson — plus RTC and fan children |
-| `0006` | net stmmac — Ethernet. **Not our work** — Armbian's Phytium ACPI glue, by Ricardo Pardini |
-| `0007` | drm/panfrost — Mali G52 |
-| `0008` | drm/meson — KMS master |
-| `0009` | drm/meson encoder-hdmi — bridge attach and CEC notifier |
-| `0010`, `0011` | drm dw-hdmi glue and core — optional clocks, bridge accessor |
-| `0012` | soc/amlogic meson-canvas |
-| `0014`–`0018` | clk and ASoC: axg-audio, axg-fifo, axg-tdm-formatter, axg-tdm-interface, g12a-tohdmitx |
-| `0019` | media/cec meson ao-cec-g12a |
-| `0020` | tty/serial meson — `ttyAML0` in both modes |
-| `0021` | media meson-vdec |
-| `0022` | pinctrl meson |
-| `0023` | iio/adc meson-saradc |
-| `0031` | Bluetooth hci_bcm — honour `max-speed` under ACPI |
+## License
 
-**Hardware quirks and fixes** (these matter in DeviceTree mode too):
-
-| Patch | What it fixes |
-|---|---|
-| `0005` | arm64/efi: claim FPSIMD state before installing the EFI mm. Fixes an EFI runtime-services regression under software PAN. **The fix is Will Deacon's** and is now upstream — `e98a9d014637` in **v7.3-rc1**. Keep this patch only for **6.19 ≤ kernel < 7.3**; drop it on v7.3+. Not needed on 6.18 (the regression is v6.19+). The upstream commit has no `Cc: stable`, so it will not reach stable trees by itself. |
-| `0013` | xhci-plat: mark streams broken on G12 DWC3 hosts (the UAS problem above) |
-| `0026` | meson-vdec: 64-byte aligned canvas strides. Widths that are not a multiple of 64 (DVD 720, VCD 352) sheared into columns on zero-copy display. |
-| `0030` | drm/meson venc: generate wide DMT modes in the CEA frame phase |
-| `0032` | drm/meson: scrambled-domain deep color (the 1/40 TMDS clock ratio) |
-
-**Video decode capability:**
-
-| Patch | What it adds |
-|---|---|
-| `0024` | HEVC decode on G12A/G12B, 8-bit and 10-bit. Squashes two never-merged FROMLIST patches (kept verbatim in `patches/linux/hevc/`) plus the G12 wiring, a working 10-bit frame-buffer MMU path, and a use-after-free fix. HEVC is the only in-spec 4K60 path — the H.264 engine is capped around 4K30. |
-| `0025` | mpeg12: emit the initial `SOURCE_CHANGE` event, which the driver never did. Without it, spec-flow clients (ffmpeg, hence Kodi) wait forever. |
-| `0029` | zero-copy AM21C FBC capture format |
-| `0033`–`0041` | meson-vdec robustness: reset discipline, racy core claim, FBC buffer recycling, firmware decode-stall recovery, null MMU maps, pooled FBC chunks |
-| `0027`, `0028` | HDMI BT.2020 colorimetry and 10/12-bit deep colour |
-| `0042`, `0043` | dw-hdmi: non-PCM IEC61937 and HBR bitstream passthrough on the I2S path |
-
-**Out-of-tree modules** (`patches/linux/*/`): `g12b-cpufreq` (CPU DVFS under
-ACPI), `g12b-pcie-acpi` (the conditional PCIe device), `vim3-hdmi-snd` (the
-ACPI machine driver replacing the OF-only `axg-card`).
-
-
-### `patches/linux/7.3/` — the current series, against v7.3-rc1
-
-63 patches, all verified to apply to a pristine `v7.3-rc1` tree. This is the
-series the board is actually running; the 7.0.x set above is kept for that
-kernel. Differences from 7.0.x worth knowing:
-
-* `0005` (arm64/efi SW-PAN) is **dropped** — upstream as `e98a9d014637`.
-* `0006` (stmmac Phytium ACPI glue, not our work) is **dropped** and replaced by
-  `0045`–`0047`: a PRP0001 match, a fwnode-based `compatible` match so
-  `core_type` is set under ACPI, and a fixed-rate CSR clock. Without these the
-  MAC probes as DWMAC100 and MDIO registration fails with `-EIO`.
-* The video-decode work is substantially extended — 34 meson-vdec patches.
-
-**These are also available as a git branch, if you would rather cherry-pick
-than apply patch files:** `vim3-acpi-v7.3-rc1` on
-[github.com/gusbourg/linux](https://github.com/gusbourg/linux/tree/vim3-acpi-v7.3-rc1)
-— a fork of `torvalds/linux` with these 63 patches as 63 commits on top of
-the `v7.3-rc1` tag. The branch and the patch files are generated from the
-same source and produce a byte-identical tree (verified by comparing tree
-hashes), so the two are interchangeable.
-
-Notable decoder fixes in this series. Verification status is stated per patch
-rather than claimed for the set:
-
-| Patch | What it fixes |
-|---|---|
-| `0048`–`0049` | Bound the slice-segment index and validate the reference-list modification. Both are bitstream-controlled indices that wrote past fixed arrays. |
-| `0051`, `0054` | Resynchronise at the next IRAP after a stall and after a flush, instead of decoding against references that no longer exist. Stops seconds of visible corruption from one bad frame. |
-| `0053` | Never program an out-of-range FBC chunk — the hardware would otherwise DMA to whatever that address happened to be. |
-| `0058` | Restart stall recovery the way a cold start does. Recovery wrote `ACTION_DONE` into the status register before starting the firmware; that value is a reply to a raised interrupt and is only collected alongside an MCPU kick, so after a reset the firmware never read it and sat. |
-| `0059` | Do not demand that *every* CAPTURE buffer be queued before streaming. `vb2_core_streamon()` defers the driver's `start_streaming()` until `queued_count >= min_queued_buffers`; a zero-copy renderer holds frames across a seek, so the callback never fired, `resume()` never ran, and the picture froze while the player's clock ran on. Also writes the ANC2AXI canvas table densely by index — it is index-addressed, and the all-queued rule was hiding that. |
-| `0060` | Recycle buffers by firmware index, not vb2 index. The firmware addresses CAPTURE buffers by the canvas slot from `amvdec_set_canvases()`, but the recycle thread passed `vb->index` with no conversion and the driver had no reverse map. The two spaces match only while buffers are queued in index order — true on a first play, false after a seek. Freeing the wrong slot let the firmware overwrite a buffer the display was still scanning out. **This bug is present in mainline `v7.3-rc1`** and affects MPEG-1/2 and H.264. |
-| `0061` | Never recycle the on-screen FBC generation. The pool's CMA-pressure path spliced *both* parked generations onto the free list, including the one that may still be on a plane; it now recycles only the aged-out generation and fails the session with `-ENOMEM` otherwise. **Correct by inspection, unproven on hardware:** across every run so far the pressure path has never executed (`recycled=0`), even with CmaFree driven to 3 MB — the free/park rotation satisfied demand first. |
-| `0062` | VP9: do not take `vp9->lock` recursively on a source change. `codec_vp9_threaded_isr()` holds the lock and calls `amvdec_src_change()`, which calls `codec_vp9_resume()` directly when the capture queue already suits the stream — and that locks `vp9->lock` again. The vdec IRQ thread blocks on a mutex it owns; seeking a VP9 stream triggers it. **This bug is present in mainline `v7.3-rc1`.** Verified: hung-task reports 5 → 0 on the same seek test. HEVC and H.264 `resume()` take no codec lock. |
-| `0063` | Do not announce a source change that did not happen. `0025` had removed upstream's early `return`, so `SOURCE_CHANGE` fired even on the path that had just decided nothing changed. ffmpeg tags this driver `FF_V4L2_QUIRK_REINIT_ALWAYS` and reallocates the whole 4K capture set per event, which is what exhausts CMA under repeated seeks. Verified by fresh-boot A/B on a 4K HEVC clip: seek failures 5–6/10 → **0/10, 0/10**. Initial negotiation is unchanged (`streamon_cap` is still 0 then). |
-| `0055` | Treat a firmware idle with queued input as a stall, instead of assuming starvation. Verified: the detector fires on the `ACTION_DONE` wedge it was written for. Its recovery path was then found broken — that is `0058`; the two belong together. |
-| `0056` | Five fixes on the path a decoder takes after losing its place: ESPARSER credit starving a resync, a discarded `setup_buffers()` error, a stall oracle that could not see a wedge, and CMA contention for the workspace and the FBC pool. Verified on VIM3 per its own commit message. |
-| `0057` | Resume on CAPTURE STREAMON without also demanding `changed_format`, which only gets set by a fresh REQBUFS — the stateful decoder interface does not require that. **Not independently verified on hardware**; it is live in the tree that passes the seek tests, so it is verified in aggregate but never isolated. |
-
-**Known-open, in this series:**
-
-*4K seeking is bounded by CMA, not by correctness.* A seek storm on a 4K
-stream drives CmaFree from ~850 MB to ~24 MB and the decoder then stops
-allocating while the player's clock runs on — a frozen picture that reads
-like a firmware wedge and is not one. Nothing leaks (stopping the player
-returns ~740 MB within seconds); the working set is simply held several times
-over — the live session, a parked FBC generation from `0041`, and the capture
-set the client reallocates. `0063` removes the redundant reallocation and
-takes HEVC 4K seek from 5–6/10 failures to 0/10 on this board, but a 4K
-session plus a parked generation is still most of 896 MB.
-
-`0041`'s pressure path, which `0061` restricts, has never been observed to
-execute; the page-metadata corruption seen earlier under
-`debug_pagealloc=on` was reproduced only on a kernel without `0061` and has
-not been reproduced since. Treat `0061` as unverified rather than as fixed.
-
-### `patches/upstream/` — not ACPI-specific
-
-Four fixes to real bugs that also affect DeviceTree mode, kept in kernel
-submission form because they belong upstream rather than in this port: the
-mpeg12 canvas-at-start collapse, a VP9 esparser `u32` underflow, spurious
-pre-negotiation `EPOLLERR`, and re-pulsing H.264 pipeline resets. **None have
-been submitted** to linux-media. Each patch states its own status below its
-`---` tear line.
-
-A fifth, the arm64/efi SW-PAN fix, **has landed upstream** in Linux
-**v7.3-rc1** as `e98a9d014637`, so its submission-form copy has been removed
-from that directory. The numbering there now starts at `0002`. See that
-directory's README for the whole thread.
-
-### `patches/userspace/ffmpeg/` — needed for hardware decode in ffmpeg/Kodi
-
-libavcodec V4L2 stateful-decoder rework, colour-metadata fallback, and
-zero-copy Amlogic FBC capture for DRMPRIME output.
-
-## Porting to another board
-
-Same SoC family (Odroid N2/N2+ is also G12B): the kernel patch series applies
-unchanged; what you rewrite is the firmware's ACPI tables, GPIO and LED
-descriptions, the cpufreq module's voltage mapping, and the sound card
-routing. Different SoC: only the generic patches and the *techniques* carry
-over.
-
-ACPI does not eliminate per-board firmware — it moves the hardware description
-out of the OS image and into the firmware image. What becomes board-independent
-is the OS.
-
-## Two standing warnings
-
-**Do not enable the SPIFC node in an operating-system device tree.** Firmware
-owns that controller exclusively for runtime UEFI variables. Enabling it in
-the OS will corrupt the variable store. The published DTB keeps it disabled;
-`stage-spi-maintenance-boot.sh` exists precisely so that enabling it is a
-deliberate, one-shot act.
-
-**Vendor blobs are redistributed under their own terms.** BL2, BL30 and BL31
-come from LibreELEC's `amlogic-boot-fip` and are not covered by this
-repository's licence.
-
-## Licence and attribution
-
-**BSD-2-Clause-Patent**, matching EDK2 — see [LICENSE](LICENSE). Copyright
-(c) 2026, Gus Bourg. Every source file carries an SPDX identifier.
-
-This repository is a mix of licences, because it is a mix of provenance:
-
-| Path | Licence | Notes |
-|---|---|---|
-| `Platform/`, `Silicon/`, `scripts/`, `patches/firmware/` | BSD-2-Clause-Patent | Portions derived from EDK2 and edk2-platforms retain their original authors' copyright notices — Intel, Arm, Linaro, Red Hat, Semihalf, AMD, Qualcomm, HPE, Jeremy Linton, Microsoft |
-| `patches/linux/`, `patches/upstream/` | GPL-2.0 | Derivatives of the Linux kernel |
-| `patches/linux/g12b-cpufreq/`, `g12b-pcie-acpi/`, `vim3-hdmi-snd/` | GPL-2.0 | Out-of-tree modules, written for this port |
-| `patches/linux/hevc/` | GPL-2.0 | **Not our work** — two never-merged patches by Maxime Jourdan and Benjamin Roszak, reproduced as carried by LibreELEC |
-| `patches/userspace/ffmpeg/` | LGPL-2.1+ / GPL-2.0+ | Inherits the licence of the ffmpeg files modified |
-
-**Every patch in `patches/` carries a `From:` line naming its author.** Five
-of them are not mine:
-
-| Patch | Author |
-|---|---|
-| `patches/userspace/ffmpeg/0001` | John Cox `<jc@kynesim.co.uk>` |
-| `patches/linux/hevc/…0016` | Maxime Jourdan `<mjourdan@baylibre.com>` |
-| `patches/linux/hevc/…0015` | Benjamin Roszak `<benjamin545@gmail.com>` |
-| `patches/firmware/edk2/0002` | Jared Pan `<jared.pan@dell.com>` |
-| `patches/linux/0006` | Ricardo Pardini `<ricardo@pardini.net>` |
-
-A sixth case is not visible in a `From:` line, because the kernel does not
-record it that way: **the diff in `patches/linux/0005` is Will Deacon's**, not
-mine. I posted a different fix for the same bug, he proposed the simpler
-reorder in review, and I reverted mine in favour of his. It is now upstream as
-`e98a9d014637`, authored by him, crediting me as reporter and tester — which
-is the right split. Our carried patch is authored by me with
-`Suggested-by: Will Deacon <will@kernel.org>`, the correct trailer for this
-situation, but it understates things, so it is said plainly here.
-
-Debts worth naming explicitly, because they are other people's work and this
-port would not exist without them:
-
-- **`patches/userspace/ffmpeg/0001` is John Cox's**, not ours — a subset of
-  the V4L2 M2M stateful-decoder rework from
-  [jc-kynesim/rpi-ffmpeg](https://github.com/jc-kynesim/rpi-ffmpeg). Not a
-  line of his code is altered; what is ours is the choice of subset, the
-  attribution header, and the two `---`/`+++` diff timestamps, which are
-  metadata about when the diff was generated rather than authorship. Full
-  provenance, including the exact base and branch commits, is at the top of
-  the patch and in that directory's README.
-- **HEVC decode comes from Maxime Jourdan** (Baylibre) and **Benjamin
-  Roszak**, whose FROMLIST patches never merged upstream. They are kept
-  verbatim in `patches/linux/hevc/`; patch `0024` squashes them together
-  with our G12 wiring, 10-bit MMU fixes and a use-after-free fix, and
-  credits them in its commit message.
-- **The arm64/efi SW-PAN fix is Will Deacon's**, as described above, and is
-  upstream in Linux v7.3-rc1 (`e98a9d014637`, reviewed by Ard Biesheuvel).
-  The bug report, the reproduction, the ftrace work and the 6.4 M-call
-  validation are mine; the change itself is his.
-- **The display bring-up leaned on Fuchsia's** BSD-3-Clause Amlogic display
-  and DesignWare HDMI drivers (Copyright The Fuchsia Authors). No Fuchsia
-  code is reproduced — the sequences were reimplemented against the
-  datasheet and verified on hardware — but the debt is real.
-
-**Vendor blobs are not in this repository.** BL2/DDR, BL30 and BL31 are
-fetched at build time from the pinned LibreELEC `amlogic-boot-fip`
-submodule, are redistributed under their own terms, and are not licensed by
-this project.
+Firmware sources in `Silicon/` and `Platform/`: BSD-2-Clause-Patent (EDK2
+convention), as are the patches. Vendor blobs under `fip-board/` are
+redistributed from the manufacturer's own firmware package and remain the
+property of their owner; they are here because the FIP toolchain requires
+them. Use of the firmware on hardware you do not own is your problem.

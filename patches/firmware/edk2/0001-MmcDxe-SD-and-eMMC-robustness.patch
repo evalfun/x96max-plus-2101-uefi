@@ -1,23 +1,5 @@
-From 696ad34ae298a6f9404fa02cba15bffd33b73c3b Mon Sep 17 00:00:00 2001
-From: Gus Bourg <gus@bourg.net>
-Date: Wed, 2 Sep 2026 17:30:00 -0700
-Subject: [PATCH] EmbeddedPkg/MmcDxe: Fall back to 4-bit eMMC bus
-
-InitializeEmmcDevice tries multiple timing modes, but requests an 8-bit
-bus for every attempt. A host that cannot route the upper four data lines
-therefore rejects every mode even when the eMMC and host both support a
-4-bit transfer.
-
-After exhausting the 8-bit timing choices, retry the same modes at 4 bits
-and program EXT_CSD BUS_WIDTH to match the width accepted by the host.
-
-Signed-off-by: Gus Bourg <gus@bourg.net>
----
- .../Universal/MmcDxe/MmcIdentification.c      | 57 +++++++++++--------
- 1 file changed, 32 insertions(+), 25 deletions(-)
-
 diff --git a/EmbeddedPkg/Universal/MmcDxe/MmcIdentification.c b/EmbeddedPkg/Universal/MmcDxe/MmcIdentification.c
-index fed1646b27..6ea15399da 100755
+index fed1646b27..9500db67be 100755
 --- a/EmbeddedPkg/Universal/MmcDxe/MmcIdentification.c
 +++ b/EmbeddedPkg/Universal/MmcDxe/MmcIdentification.c
 @@ -263,8 +263,9 @@ InitializeEmmcDevice (
@@ -73,6 +55,8 @@ index fed1646b27..6ea15399da 100755
 -      if (EFI_ERROR (Status)) {
 -        DEBUG ((DEBUG_ERROR, "InitializeEmmcDevice(): Failed to set EXTCSD bus width, Status:%r\n", Status));
 -      }
+-
+-      return Status;
 +      Status = Host->SetIos (Host, BusClockFreq, BusWidth[WidthIdx], TimingMode[Idx]);
 +      if (!EFI_ERROR (Status)) {
 +        switch (TimingMode[Idx]) {
@@ -91,8 +75,7 @@ index fed1646b27..6ea15399da 100755
 +          default:
 +            return EFI_UNSUPPORTED;
 +        }
- 
--      return Status;
++
 +        Status = EmmcSetEXTCSD (MmcHostInstance, EXTCSD_BUS_WIDTH, BusMode);
 +        if (EFI_ERROR (Status)) {
 +          DEBUG ((DEBUG_ERROR, "InitializeEmmcDevice(): Failed to set EXT_CSD bus width, Status:%r\n", Status));
@@ -103,5 +86,3 @@ index fed1646b27..6ea15399da 100755
      }
    }
  
--- 
-2.53.0

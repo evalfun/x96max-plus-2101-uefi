@@ -1,0 +1,31 @@
+diff --git a/SecurityPkg/RandomNumberGenerator/RngDxe/ArmRngDxe.c b/SecurityPkg/RandomNumberGenerator/RngDxe/ArmRngDxe.c
+index 7a42e3cbe3..3d39805541 100644
+--- a/SecurityPkg/RandomNumberGenerator/RngDxe/ArmRngDxe.c
++++ b/SecurityPkg/RandomNumberGenerator/RngDxe/ArmRngDxe.c
+@@ -78,6 +78,7 @@ RngGetRNG (
+ {
+   EFI_STATUS  Status;
+   GUID        RngGuid;
++  UINTN       Index;
+ 
+   if ((This == NULL) || (RNGValueLength == 0) || (RNGValue == NULL)) {
+     return EFI_INVALID_PARAMETER;
+@@ -104,7 +105,17 @@ RngGetRNG (
+ 
+   // Raw algorithm (Trng)
+   if (CompareGuid (RNGAlgorithm, &gEfiRngAlgorithmRaw)) {
+-    return GenerateEntropy (RNGValueLength, RNGValue);
++    for (Index = 0; Index < mAvailableAlgoArrayCount; Index++) {
++      if (CompareGuid (
++            &mAvailableAlgoArray[Index],
++            &gEfiRngAlgorithmRaw
++            ))
++      {
++        return GenerateEntropy (RNGValueLength, RNGValue);
++      }
++    }
++
++    return EFI_UNSUPPORTED;
+   }
+ 
+   //

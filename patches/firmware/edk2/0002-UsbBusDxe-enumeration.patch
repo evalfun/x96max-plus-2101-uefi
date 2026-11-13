@@ -1,26 +1,5 @@
-From 0de4fea5d035b9ae7984dd5c58703e144d96059c Mon Sep 17 00:00:00 2001
-From: Jared Pan <jared.pan@dell.com>
-Date: Tue, 23 Jun 2026 10:36:15 +0800
-Subject: [PATCH] MdeModulePkg/UsbBusDxe: Improve USB enumerating process
-
-The patch enhances the USB enumeration process in EDK2 to improve compatibility with non-standards-compliant devices that may fail during standard enumeration sequences.
-The suggested solution is based on USB specifications and references implementations from both Linux and Windows environments.
-
-[Suggested solution]
-- Integrated a retry mechanism to sequentially execute enumeration scripts, inspired by the enumeration flows of Windows, Linux, and EDK2. This improves robustness when handling corner-case devices.
-- Do sanity check while the device report the device descriptor.
-- AMD XHCI might need to wait for more time while sending the CLEAR_FEATURE reuqest.
-
-Signed-off-by: Marlboro Chuang <marlboro.chuang@dell.com>
-Signed-off-by: Jared Pan <jared.pan@dell.com>
----
- MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBus.h    | 11 ++++
- MdeModulePkg/Bus/Usb/UsbBusDxe/UsbDesc.c   | 50 ++++++++++++--
- MdeModulePkg/Bus/Usb/UsbBusDxe/UsbEnumer.c | 76 +++++++++++++++++++---
- 3 files changed, 121 insertions(+), 16 deletions(-)
-
 diff --git a/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBus.h b/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBus.h
-index 10f4533b5d..ac0cbab359 100644
+index 10f4533b5d..60c516c3c6 100644
 --- a/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBus.h
 +++ b/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBus.h
 @@ -142,6 +142,16 @@ typedef struct _USB_HUB_API    USB_HUB_API;
@@ -49,7 +28,7 @@ index 10f4533b5d..ac0cbab359 100644
  
  //
 diff --git a/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbDesc.c b/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbDesc.c
-index 8b078e7e49..f0c3cc7ced 100644
+index 8b078e7e49..fb857395e7 100644
 --- a/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbDesc.c
 +++ b/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbDesc.c
 @@ -611,6 +611,21 @@ UsbGetDevDesc (
@@ -131,7 +110,7 @@ index 8b078e7e49..f0c3cc7ced 100644
  
    return Buf;
 diff --git a/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbEnumer.c b/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbEnumer.c
-index 4b8d01d7fb..82c9a4f9ef 100644
+index 4b8d01d7fb..beaf08ba6f 100644
 --- a/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbEnumer.c
 +++ b/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbEnumer.c
 @@ -233,6 +233,7 @@ UsbCreateDevice (
@@ -264,5 +243,3 @@ index 4b8d01d7fb..82c9a4f9ef 100644
  }
  
  /**
--- 
-2.53.0

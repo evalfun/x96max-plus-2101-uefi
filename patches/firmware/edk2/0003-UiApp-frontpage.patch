@@ -1,11 +1,3 @@
-From: Gus Bourg <gus@bourg.net>
-Date: Wed, 2 Sep 2026 17:30:00 -0700
-Subject: UiApp show both CPU clusters on the front page
-
-Written for the Khadas VIM3 EDK2 port.
-
-Signed-off-by: Gus Bourg <gus@bourg.net>
-
 diff --git a/MdeModulePkg/Application/UiApp/FrontPage.c b/MdeModulePkg/Application/UiApp/FrontPage.c
 index 56e174fe56..856911aa84 100644
 --- a/MdeModulePkg/Application/UiApp/FrontPage.c

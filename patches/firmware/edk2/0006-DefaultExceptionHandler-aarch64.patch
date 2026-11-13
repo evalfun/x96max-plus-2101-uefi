@@ -1,0 +1,60 @@
+diff --git a/ArmPkg/Library/DefaultExceptionHandlerLib/AArch64/DefaultExceptionHandler.c b/ArmPkg/Library/DefaultExceptionHandlerLib/AArch64/DefaultExceptionHandler.c
+index 5f9bcf7966..dd3a48792d 100644
+--- a/ArmPkg/Library/DefaultExceptionHandlerLib/AArch64/DefaultExceptionHandler.c
++++ b/ArmPkg/Library/DefaultExceptionHandlerLib/AArch64/DefaultExceptionHandler.c
+@@ -206,6 +206,55 @@ DefaultExceptionHandler (
+   CharCount = AsciiSPrint (Buffer, sizeof (Buffer), "\n\n%a Exception at 0x%016lx\n", gExceptionTypeString[ExceptionType], SystemContext.SystemContextAArch64->ELR);
+   SerialPortWrite ((UINT8 *)Buffer, CharCount);
+ 
++  //
++  // Bring-up diagnostics for the Amlogic bring-up: always surface the
++  // syndrome register and faulting address on the serial console, not
++  // just under DEBUG, so the first fault is decodable from a wall.
++  // (These writes must not depend on services; use raw MMIO UART_AO_A.)
++  //
++  {
++    UINT64  CurEl;
++    UINT64  Mpidr;
++    UINT64  Esr;
++    UINT64  Far;
++    UINT32  Level;
++
++    __asm__ volatile ("mrs %0, currentel" : "=r" (CurEl));
++    Level = (UINT32)((CurEl >> 2) & 3);
++    switch (Level) {
++      case 1:  // EL1
++        __asm__ volatile ("mrs %0, esr_el1" : "=r" (Esr));
++        __asm__ volatile ("mrs %0, far_el1" : "=r" (Far));
++        break;
++      case 2:  // EL2
++        __asm__ volatile ("mrs %0, esr_el2" : "=r" (Esr));
++        __asm__ volatile ("mrs %0, far_el2" : "=r" (Far));
++        break;
++      case 3:  // EL3
++        __asm__ volatile ("mrs %0, esr_el3" : "=r" (Esr));
++        __asm__ volatile ("mrs %0, far_el3" : "=r" (Far));
++        break;
++      default:
++        Esr = 0;
++        Far = 0;
++    }
++    __asm__ volatile ("mrs %0, mpidr_el1" : "=r" (Mpidr));
++
++    CharCount = AsciiSPrint (
++                  Buffer,
++                  sizeof (Buffer),
++                  "RAW: EL%a MPIDR=0x%lx\n"
++                  " ESR=0x%016lx FAR=0x%016lx\n"
++                  " EC=%lx IL=%x ISS=0x%lx\n",
++                  (Level == 1) ? "1" : (Level == 2) ? "2" : (Level == 3) ? "3" : "?",
++                  Mpidr, Esr, Far,
++                  (Esr >> 26) & 0x3f,
++                  (UINT32)((Esr >> 25) & 1),
++                  Esr & 0x1ffffff
++                  );
++    SerialPortWrite ((UINT8 *)Buffer, CharCount);
++  }
++
+   // Prepare a unicode buffer for ConOut, if applicable, in case the buffer
+   // gets reused.
+   UnicodeSPrintAsciiFormat (UnicodeBuffer, MAX_PRINT_CHARS, Buffer);
