@@ -10,7 +10,11 @@ output_dir="${project_root}/out/${target}/fip"
 work_dir="${project_root}/out/${target}/fip-work"
 
 test -s "${fd}"
-test "$(stat -c %s "${fd}")" -eq 4194304
+# The FD no longer has a fixed size: the eMMC flash-in build shrinks it to
+# whatever the boot partition can hold (see FDF).  Sanity-bound instead.
+fd_size=$(stat -c %s "${fd}")
+test "${fd_size}" -gt $((0x20000))
+test "${fd_size}" -le $((4*1024*1024))
 
 mkdir -p "${output_dir}" "${work_dir}"
 

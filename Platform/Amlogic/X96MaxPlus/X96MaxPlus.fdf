@@ -8,10 +8,10 @@
 
 [FD.X96M_EFI]
 BaseAddress   = 0x01000000|gArmTokenSpaceGuid.PcdFdBaseAddress
-Size          = 0x00400000|gArmTokenSpaceGuid.PcdFdSize
+Size          = 0x000E0000|gArmTokenSpaceGuid.PcdFdSize
 ErasePolarity = 1
 BlockSize     = 0x00001000
-NumBlocks     = 0x400
+NumBlocks     = 0xE0
 
 # Flat BL33 entry header.  The word at 0 is an ADR that sets x1 to the runtime
 # image base, then control branches to the self-relocating PrePi FV at offset
@@ -38,7 +38,7 @@ DATA = {
 0x00001000|0x0001F000
 FILE = $(X96_DTB_FILE)
 
-0x00020000|0x003E0000
+0x00020000|0x000C0000
 gArmTokenSpaceGuid.PcdFvBaseAddress|gArmTokenSpaceGuid.PcdFvSize
 FV = FVMAIN_COMPACT
 
