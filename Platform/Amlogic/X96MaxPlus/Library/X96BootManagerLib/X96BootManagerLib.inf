@@ -77,6 +77,8 @@
 
 [Guids]
   gBootDiscoveryPolicyMgrFormsetGuid
+  gFdtHobGuid
+  gFdtTableGuid
   gEdkiiNonDiscoverableEhciDeviceGuid
   gEdkiiNonDiscoverableUhciDeviceGuid
   gEdkiiNonDiscoverableXhciDeviceGuid

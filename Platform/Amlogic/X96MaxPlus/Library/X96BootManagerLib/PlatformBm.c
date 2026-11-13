@@ -33,6 +33,9 @@
 #include <Protocol/UsbIo.h>
 #include <Protocol/PlatformBootManager.h>
 #include <Guid/BootDiscoveryPolicy.h>
+#include <Guid/Fdt.h>
+#include <Guid/FdtHob.h>
+#include <Guid/HobList.h>
 #include <Guid/EventGroup.h>
 #include <Guid/NonDiscoverableDevice.h>
 #include <Guid/TtyTerm.h>
@@ -804,6 +807,54 @@ PlatformBootManagerBeforeConsole (
   VOID
   )
 {
+  //
+  // Publish the platform Device Tree as the standard EFI configuration
+  // table (gFdtTableGuid, the same GUID GRUB's grub_efi_get_firmware_fdt
+  // and every Linux EFI stub consume).  PlatformPeiLib recorded the
+  // normalised blob in a gFdtHobGuid HOB, which is how X96LinuxBoot
+  // reaches it -- but without the configuration table GRUB synthesises
+  // an empty FDT, the stub boots the kernel with no /memory, and the
+  // kernel dies silently right after ExitBootServices ("post-EBS hang").
+  //
+  {
+    EFI_STATUS  Status;
+    VOID        *HobList;
+    VOID        *Fdt;
+
+    Fdt = NULL;
+    if (!EFI_ERROR (EfiGetSystemConfigurationTable (&gEfiHobListGuid, &HobList)) && (HobList != NULL)) {
+      EFI_HOB_GUID_TYPE    *Hob;
+      EFI_PHYSICAL_ADDRESS  HobVal;
+
+      Hob = GetFirstGuidHob (&gFdtHobGuid);
+      if (Hob != NULL) {
+        CopyMem (&HobVal, GET_GUID_HOB_DATA (Hob), sizeof HobVal);
+        Fdt = (VOID *)(UINTN)HobVal;
+      }
+    }
+
+    if (Fdt != NULL) {
+      UINT32  Sig;
+
+      CopyMem (&Sig, Fdt, sizeof Sig);
+      if (Sig != 0xEDFE0DD0) {         // FDT magic 0xd00dfeed, little-endian view
+        Fdt = NULL;
+      }
+    }
+
+    if (Fdt != NULL) {
+      Status = gBS->InstallConfigurationTable (&gFdtTableGuid, Fdt);
+      DEBUG ((
+        DEBUG_INFO,
+        "X96 Bds: FDT config table %a at %p\n",
+        EFI_ERROR (Status) ? "install FAILED" : "installed",
+        Fdt
+        ));
+    } else {
+      DEBUG ((DEBUG_INFO, "X96 Bds: no FDT HOB reachable, config table skipped\n"));
+    }
+  }
+
   //
   // Name the eMMC and SD boot options in the menu (registered before BDS
   // enumerates boot options in PlatformBootManagerAfterConsole).
