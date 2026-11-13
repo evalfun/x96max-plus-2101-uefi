@@ -17,7 +17,6 @@
 #include <Library/CapsuleLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/HobLib.h>
-#include <MesonSdDiag.h>
 #include <Library/PcdLib.h>
 #include <Library/UefiBootManagerLib.h>
 #include <Library/UefiLib.h>
@@ -795,7 +794,7 @@ X96BootDescriptionHandler (
 
 STATIC
 VOID
-X96RegisterLinuxLoaderOption (
+X96RegisterShellDefaultOption (
   VOID
   );
 
@@ -1311,73 +1310,6 @@ PlatformBootManagerAfterConsole (
   VOID
   )
 {
-  EFI_STATUS                           DiagStatus;
-  UINT8                                Diag[256];
-  UINTN                                DiagSize;
-  MESON_SD_DIAG_VAR                    D;
-
-  //
-  // The SD host exported its identification diagnostics as a boot-services
-  // variable; print them on the local console (serial and HDMI) - the only
-  // observable path on serial-less units.
-  //
-  DiagSize = sizeof (Diag);
-  DiagStatus = gRT->GetVariable (MESON_SD_DIAG_VARIABLE, &mMesonSdDiagGuid, NULL, &DiagSize, Diag);
-  if (!EFI_ERROR (DiagStatus)) {
-    CopyMem (&D, Diag, DiagSize);
-    Print (
-      L"X96 SD: magic=%x tuned=%u co=%u tx=%u clk=%uHz attempts=%u last-st=%x\n",
-      D.Magic,
-      D.Tuned,
-      D.Co,
-      D.Tx,
-      D.ClockHz,
-      D.Attempts,
-      D.LastStatus
-      );
-    Print (
-      L"X96 SD: echo=%08x ocr=%08x csd=%08x,%08x,%08x,%08x\n",
-      D.EchoR0,
-      D.Ocr,
-      *((UINT32 *)D.Csd),
-      *((UINT32 *)(D.Csd + 4)),
-      *((UINT32 *)(D.Csd + 8)),
-      *((UINT32 *)(D.Csd + 12))
-      );
-    Print (
-      L"X96 SD: cid=%08x,%08x,%08x,%08x cmdtrace=%016lx last-cmd=%u\n",
-      D.Cid[0],
-      D.Cid[1],
-      D.Cid[2],
-      D.Cid[3],
-      D.CmdTrace,
-      D.LastCmd
-      );
-    Print (
-      L"X96 SD: notifies=%u last-state=%u statemask=%08x\n",
-      D.NotifyCount,
-      D.LastState,
-      D.StateMask
-      );
-    Print (L"X96 SD raw[0-7] :");
-    {
-      UINTN  RawIdx;
-
-      for (RawIdx = 0; RawIdx < 8; RawIdx++) {
-        Print (L" %08x", D.RawRegs[RawIdx]);
-      }
-    }
-    Print (L"\n");
-    Print (L"X96 SD raw[8-15]:");
-    {
-      UINTN  RawIdx;
-
-      for (RawIdx = 8; RawIdx < 16; RawIdx++) {
-        Print (L" %08x", D.RawRegs[RawIdx]);
-      }
-    }
-    Print (L"\n");
-  }
     EFI_STATUS                    Status;
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
   UINTN                         FirmwareVerLength;
@@ -1598,87 +1530,51 @@ PlatformBootManagerAfterConsole (
   }
 
   //
-  // Zero-touch Linux boot: register \X96LinuxBoot.efi (if present on an
-  // ESP) at the front of the boot order.
+  // Default boot: the UEFI Shell, which runs startup.nsh from the first
+  // mapped filesystem.  All boot policy therefore lives in an editable
+  // script on the card instead of being baked into the firmware.
   //
-  X96RegisterLinuxLoaderOption ();
+  X96RegisterShellDefaultOption ();
 }
 
 //
-// Register the booti-style Linux loader living on the ESP so that a
-// cold boot turns into Linux without a keyboard: it lands first in the
-// boot order and BDS auto-boots it within the timeout.  If the loader
-// is missing (or returns without handoff), BDS falls back to the rest
-// of the boot order (GRUB, eMMC chain...).  ESC still reaches the menu.
+// Default boot option: the UEFI Shell from the firmware volume, placed at
+// the front of the boot order so a cold boot lands in the Shell after the
+// countdown.  The Shell auto-runs startup.nsh from the first mapped
+// filesystem, so the actual boot target (kernel, initrd, command line) is
+// an editable script on the card -- changing it never requires a firmware
+// update.  ESC still reaches the menu; if the script is absent the Shell
+// stays interactive.
 //
 STATIC
 VOID
-X96RegisterLinuxLoaderOption (
+X96RegisterShellDefaultOption (
   VOID
   )
 {
-  STATIC CONST CHAR16           *LoaderPath = L"\\X96LinuxBoot.efi";
-  EFI_STATUS                     Status;
-  EFI_HANDLE                    *SfsHandles;
-  EFI_HANDLE                    *SfsHandlesCopy;
-  UINTN                          SfsCount;
-  UINTN                          Index;
-  EFI_DEVICE_PATH_PROTOCOL      *DevicePath;
-  EFI_BOOT_MANAGER_LOAD_OPTION   Option;
-  EFI_BOOT_MANAGER_LOAD_OPTION  *BootOptions;
-  UINTN                          BootOptionCount;
-  EFI_INPUT_KEY                  Key;
+  EFI_STATUS                         Status;
+  EFI_LOADED_IMAGE_PROTOCOL         *LoadedImage;
+  MEDIA_FW_VOL_FILEPATH_DEVICE_PATH  FileNode;
+  EFI_DEVICE_PATH_PROTOCOL          *DevicePath;
+  EFI_BOOT_MANAGER_LOAD_OPTION       Option;
+  EFI_BOOT_MANAGER_LOAD_OPTION      *BootOptions;
+  UINTN                              BootOptionCount;
 
-  SfsHandles = NULL;
-  DevicePath = NULL;
-
-  Status = gBS->LocateHandleBuffer (
-                  ByProtocol,
-                  &gEfiSimpleFileSystemProtocolGuid,
-                  NULL,
-                  &SfsCount,
-                  &SfsHandles
+  Status = gBS->HandleProtocol (
+                  gImageHandle,
+                  &gEfiLoadedImageProtocolGuid,
+                  (VOID **)&LoadedImage
                   );
   if (EFI_ERROR (Status)) {
     return;
   }
 
-  SfsHandlesCopy = SfsHandles;
-  for (Index = 0; Index < SfsCount; Index++) {
-    EFI_FILE_PROTOCOL  *Root;
-    EFI_FILE_PROTOCOL  *File;
-
-    Root = NULL;
-    File = NULL;
-
-    Status = gBS->HandleProtocol (
-                    SfsHandlesCopy[Index],
-                    &gEfiSimpleFileSystemProtocolGuid,
-                    (VOID **)&Root
-                    );
-    if (EFI_ERROR (Status) || (Root == NULL)) {
-      continue;
-    }
-
-    File = NULL;
-    Status = Root->Open (
-                     Root,
-                     &File,
-                     (CHAR16 *)LoaderPath,
-                     EFI_FILE_MODE_READ,
-                     0
-                     );
-    if ((Status == EFI_SUCCESS) && (File != NULL)) {
-      File->Close (File);
-      DevicePath = FileDevicePath (SfsHandlesCopy[Index], (CHAR16 *)LoaderPath);
-      break;
-    }
-  }
-
-  FreePool (SfsHandles);
-
+  EfiInitializeFwVolDevicepathNode (&FileNode, &gUefiShellFileGuid);
+  DevicePath = AppendDevicePathNode (
+                 DevicePathFromHandle (LoadedImage->DeviceHandle),
+                 (EFI_DEVICE_PATH_PROTOCOL *)&FileNode
+                 );
   if (DevicePath == NULL) {
-    DEBUG ((DEBUG_INFO, "%a: %s not present on any ESP yet\n", __func__, LoaderPath));
     return;
   }
 
@@ -1687,12 +1583,15 @@ X96RegisterLinuxLoaderOption (
              LoadOptionNumberUnassigned,
              LoadOptionTypeBoot,
              LOAD_OPTION_ACTIVE,
-             L"Linux (X96Loader)",
+             L"UEFI Shell (default)",
              DevicePath,
              NULL,
              0
              );
   FreePool (DevicePath);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
 
   //
   // Only add once; on repeat boots keep the stored position untouched so
@@ -1707,24 +1606,16 @@ X96RegisterLinuxLoaderOption (
 
   EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
 
-  Key.ScanCode    = SCAN_NULL;
-  Key.UnicodeChar = L'l';
-
-  {
-    //
-    // EfiBootManagerAddKeyOptionVariable needs the final number, so add the
-    // option first, then bind the hotkey.
-    //
-    EFI_BOOT_MANAGER_LOAD_OPTION  AddOption = Option;
-
-    Status = EfiBootManagerAddLoadOptionVariable (&AddOption, 0);
-    if (!EFI_ERROR (Status)) {
-      EfiBootManagerAddKeyOptionVariable (NULL, AddOption.OptionNumber, 0, &Key, NULL);
-    }
-
-    EfiBootManagerFreeLoadOption (&Option);
-    return;
+  Status = EfiBootManagerAddLoadOptionVariable (&Option, 0);
+  if (!EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_INFO,
+      "%a: UEFI Shell (default) registered as BootOrder[0]\n",
+      __func__
+      ));
   }
+
+  EfiBootManagerFreeLoadOption (&Option);
 }
 
 /**
@@ -1759,58 +1650,6 @@ PlatformBootManagerWaitCallback (
              );
   if (EFI_ERROR (Status)) {
     Print (L".");
-  }
-
-  //
-  // Live SD-diagnostic snapshot during the countdown: by this point BDS
-  // has run the connect-all pass, so MmcDxe is bound if it ever will be
-  // and the 200 ms card-detect timer has had ticks.  Print only when the
-  // observed triple changes so the screen is not flooded.  This is the
-  // only observable path on serial-less units.
-  //
-  {
-    STATIC UINTN      PrevKey = MAX_UINTN;
-    EFI_STATUS        DiagStatus;
-    UINTN             DiagSize;
-    UINT8             Diag[256];
-    MESON_SD_DIAG_VAR D;
-    UINTN             Key;
-
-    DiagSize   = sizeof (Diag);
-    DiagStatus = gRT->GetVariable (
-                        MESON_SD_DIAG_VARIABLE,
-                        &mMesonSdDiagGuid,
-                        NULL,
-                        &DiagSize,
-                        Diag
-                        );
-    if (!EFI_ERROR (DiagStatus)) {
-      CopyMem (&D, Diag, sizeof (D));
-      Key = D.NotifyCount | (D.CardPolls << 12) | (D.StateMask << 28);
-      if (Key != PrevKey) {
-        PrevKey = Key;
-        Print (
-          L"X96 SD tick: notifies=%u polls=%u last-state=%u statemask=%08x\n",
-          D.NotifyCount,
-          D.CardPolls,
-          D.LastState,
-          D.StateMask
-          );
-        Print (
-          L"X96 SD tick: sd-cmds=%016lx last=%u   eMMC: n=%u st=%u mask=%08x\n",
-          D.CmdTrace,
-          D.LastCmd,
-          D.EmmcNotifyCount,
-          D.EmmcLastState,
-          D.EmmcStateMask
-          );
-        Print (
-          L"X96 SD tick: eMMC-cmds=%016lx last=%u\n",
-          D.EmmcCmdTrace,
-          D.EmmcLastCmd
-          );
-      }
-    }
   }
 }
 
