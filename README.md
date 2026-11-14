@@ -6,7 +6,7 @@ BL30 and BL31 are retained, so the boot chain stays stock up to the point
 where firmware takes over.
 
 > **谁会闲的蛋疼在电视盒子上跑 UEFI 呢？**
-> ——是的，没人会。这就是为什么这个仓库存在：一台 30 块钱的电视盒子，
+> ——是的，没人会。这就是为什么这个仓库存在：一台 300 块钱的电视盒子，
 > 板载 4GB LPDDR4、千兆网卡、HDMI、USB3，唯一的问题是它的 bootloader 是
 > 一坨 2015 年的 U-Boot。现在它是一台正经的 UEFI 机器：GRUB 启动、
 > EFI 变量、SMBIOS、内核看到完整的 EFI runtime services。
