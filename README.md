@@ -40,6 +40,7 @@ Verified end to end on the target hardware:
 | GRUB (grub-mkimage, arm64-efi) → Linux EFI stub | ✅ full boot, **with EFI runtime services** |
 | Linux EFI runtime (`efi: EFI v2.7 by TianoCore`) | ✅ MEMATTR/INITRD/MEMRESERVE tables all exported |
 | Zero-touch boot via `startup.nsh` on the card | ✅ — the boot policy is an editable text file, not firmware |
+| NVRAM persistence across reboots | ✅ raw-LBA store on the boot card; boot options authored in the firmware (bcfg, boot manager) survive power cycles, deleted entries stay deleted — `docs/nvram-persistence.md` |
 | eMMC/USB/NVMe boot media | untested (priority low; the card path is the point) |
 | Capsule update, Secure Boot | not implemented |
 
@@ -140,6 +141,9 @@ docs/                          war stories: root-cause analyses, recipes
   blocked, and what still works.
 * [`docs/hardware-notes.md`](docs/hardware-notes.md) — serial console, HDMI,
   the USB rails, and other board trivia.
+* [`docs/nvram-persistence.md`](docs/nvram-persistence.md) — how the firmware's
+  NVRAM survives power cycles without SPI NOR: the raw-LBA store format, the
+  replay protocol, the `nvsave` shell command, and the Linux-side tool.
 
 ## License
 
