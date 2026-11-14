@@ -205,6 +205,8 @@
   # bring-up + Linux simple-framebuffer handoff).
   #
   Platform/Amlogic/X96MaxPlus/Drivers/MesonDisplayDxe/MesonDisplayDxe.inf
+  Platform/Amlogic/X96MaxPlus/Drivers/X96NvVarsPersistDxe/X96NvVarsPersistDxe.inf
+  Platform/Amlogic/X96MaxPlus/Drivers/X96NvSaveCommandDxe/X96NvSaveCommandDxe.inf
   MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
   Silicon/Amlogic/MesonSm1/Drivers/MesonSdMmcDxe/MesonSdMmcDxe.inf
   EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf

@@ -51,6 +51,7 @@
 // Clock and reset controls.  A set reset-level bit means deasserted.
 //
 #define HHI_GATE_USB              BIT25
+#define HHI_GATE_USB0_DDR_BRIDGE  BIT7
 #define HHI_GATE_USB1_DDR_BRIDGE  BIT8
 #define RESET_USB                 BIT2
 #define RESET_USB_PHY20           BIT16
@@ -760,12 +761,43 @@ MesonUsbInitialize (
   DEBUG ((DEBUG_INFO, "MesonUSB: no board VBUS regulator (hardwired rail)\n"));
   MesonEnableUsbPower ();
 
+  //
+  // Power the USB memory domain up before any glue access.  The vendor
+  // U-Boot's USB-burn timeout path ("sof timeout, reset usb phy tuning")
+  // powers this domain down and never restores it; when it is down the glue
+  // register block (0xffe09000 region) takes a Synchronous External Abort on
+  // first access.  Empirically confirmed on this board: every crash boot
+  // starts with MEMPd=FFFC00F3 (bits 30/31 set, domain off), every healthy
+  // boot with 3FFC00F3.
+  //
+  if ((MmioRead32 (MESON_SM1_HHI_MEM_PD_REG0) & (BIT30 | BIT31)) != 0) {
+    MmioAnd32 (MESON_SM1_HHI_MEM_PD_REG0, (UINT32)~(BIT30 | BIT31));
+    DEBUG ((DEBUG_ERROR, "MesonUSB: USB memory power domain was DOWN (vendor burn-path residue), powered up\n"));
+  }
+
   DEBUG ((DEBUG_INFO, "MesonUSB: enabling controller clocks\n"));
+  DEBUG ((
+    DEBUG_INFO,
+    "MesonUSB: pre-state GCLK MPEG0=%08x MPEG1=%08x MPEG2=%08x MEMPd=%08x RstL0=%08x RstL1=%08x RstL2=%08x\n",
+    MmioRead32 (MESON_SM1_HHI_GCLK_MPEG0),
+    MmioRead32 (MESON_SM1_HHI_GCLK_MPEG1),
+    MmioRead32 (MESON_SM1_HHI_GCLK_MPEG2),
+    MmioRead32 (MESON_SM1_HHI_MEM_PD_REG0),
+    MmioRead32 (MESON_SM1_RESET_LEVEL0),
+    MmioRead32 (MESON_SM1_RESET_LEVEL1),
+    MmioRead32 (MESON_SM1_RESET_LEVEL2)
+    ));
   MmioOr32 (MESON_SM1_HHI_GCLK_MPEG1, HHI_GATE_USB);
   MmioOr32 (
     MESON_SM1_HHI_GCLK_MPEG2,
-    HHI_GATE_USB1_DDR_BRIDGE
+    HHI_GATE_USB1_DDR_BRIDGE | HHI_GATE_USB0_DDR_BRIDGE
     );
+  DEBUG ((
+    DEBUG_INFO,
+    "MesonUSB: gates enabled MPEG1=%08x MPEG2=%08x\n",
+    MmioRead32 (MESON_SM1_HHI_GCLK_MPEG1),
+    MmioRead32 (MESON_SM1_HHI_GCLK_MPEG2)
+    ));
 
   DEBUG ((DEBUG_INFO, "MesonUSB: resetting controller and USB2 PHYs\n"));
   PulseReset (MESON_SM1_RESET_LEVEL1, RESET_USB, 1);

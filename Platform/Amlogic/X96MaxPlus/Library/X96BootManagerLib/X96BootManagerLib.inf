@@ -79,6 +79,7 @@
   gBootDiscoveryPolicyMgrFormsetGuid
   gFdtHobGuid
   gFdtTableGuid
+  gX96NvVarsLoadEventGuid
   gEdkiiNonDiscoverableEhciDeviceGuid
   gEdkiiNonDiscoverableUhciDeviceGuid
   gEdkiiNonDiscoverableXhciDeviceGuid
@@ -103,3 +104,4 @@
   gEfiUsbIoProtocolGuid
   gEsrtManagementProtocolGuid
   gPlatformBootManagerProtocolGuid
+  gX96NvVarsPersistProtocolGuid

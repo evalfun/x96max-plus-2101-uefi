@@ -1,0 +1,42 @@
+## @file
+#  Provides the 'nvsave' dynamic UEFI shell command: saves the emulated
+#  NVRAM store to the boot card on demand (covers Shell sessions ended
+#  with a plain reset).
+#
+#  Copyright (c) 2026, Gus Bourg. All rights reserved.<BR>
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 1.27
+  BASE_NAME                      = X96NvSaveCommandDxe
+  FILE_GUID                      = 6f3a2b91-8c44-4d17-9e5a-3b7d60a2f1c8
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = X96NvSaveCommandDxeEntryPoint
+
+[Sources.common]
+  X96NvSaveCommandDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+  Platform/Amlogic/X96MaxPlus/X96MaxPlus.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiShellDynamicCommandProtocolGuid              ## PRODUCES
+  gX96NvVarsPersistProtocolGuid                    ## CONSUMES
+
+[DEPEX]
+  TRUE

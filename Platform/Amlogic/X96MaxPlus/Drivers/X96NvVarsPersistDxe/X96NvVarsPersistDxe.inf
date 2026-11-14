@@ -1,0 +1,57 @@
+## @file
+#  X96NvVarsPersistDxe: persist the emulated non-volatile variable store
+#  to a file ("NvVars") on the boot card, and restore it early in the next
+#  boot -- before BDS reads BootOrder.
+#
+#  Copyright (c) 2026, Gus Bourg. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = X96NvVarsPersistDxe
+  FILE_GUID                      = 740caa8b-0f72-4140-8096-6ecc02ef17ea
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = X96NvVarsPersistDxeEntryPoint
+
+#
+#  VALID_ARCHITECTURES           = AARCH64
+#
+
+[Sources]
+  X96NvVarsPersistDxe.c
+  X96NvVarsPersist.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Platform/Amlogic/X96MaxPlus/X96MaxPlus.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+  UefiRuntimeServicesTableLib
+
+[Guids]
+  gEfiEventReadyToBootGuid
+  gEfiEventBeforeExitBootServicesGuid
+  gEfiFileInfoGuid
+  gEfiGlobalVariableGuid
+  gEdkiiVarErrorFlagGuid
+  gZeroGuid
+  gX96NvVarsLoadEventGuid
+
+[Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiVariableArchProtocolGuid        ## CONSUMES (Depex)
+  gX96NvVarsPersistProtocolGuid       ## PRODUCES
+
+[Depex]
+  gEfiVariableArchProtocolGuid

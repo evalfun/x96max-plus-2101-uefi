@@ -105,6 +105,7 @@ APRIORI DXE {
   #
   INF Silicon/Amlogic/MesonSm1/Drivers/MesonSdMmcDxe/MesonSdMmcDxe.inf
   INF EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
+  INF Platform/Amlogic/X96MaxPlus/Drivers/X96NvVarsPersistDxe/X96NvVarsPersistDxe.inf
   INF Silicon/Amlogic/MesonSm1/Drivers/MesonUsbDxe/MesonUsbDxe.inf
   INF MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
   INF Silicon/Amlogic/MesonSm1/Drivers/X96XhciDxe/X96XhciDxe.inf
@@ -122,6 +123,7 @@ APRIORI DXE {
   INF ShellPkg/Application/Shell/Shell.inf
   INF ShellPkg/DynamicCommand/VariablePolicyDynamicCommand/VariablePolicyDynamicCommand.inf
   INF OvmfPkg/LinuxInitrdDynamicShellCommand/LinuxInitrdDynamicShellCommand.inf
+  INF Platform/Amlogic/X96MaxPlus/Drivers/X96NvSaveCommandDxe/X96NvSaveCommandDxe.inf
 
   INF MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf
   INF MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf

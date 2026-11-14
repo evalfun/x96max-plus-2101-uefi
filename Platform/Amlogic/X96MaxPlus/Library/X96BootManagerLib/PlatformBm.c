@@ -801,6 +801,51 @@ X96RegisterShellDefaultOption (
   VOID
   );
 
+/**
+  Placeholder notify for the NVRAM-load signal event: the signal itself is
+  what matters; X96NvVarsPersistDxe carries the real callback.
+**/
+STATIC
+VOID
+EFIAPI
+X96NvVarsLoadSignalNotify (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+}
+
+/**
+  Decide whether the persisted NVRAM is authoritative this boot: a persisted
+  store was restored (X96NvVarsPersistDxe installed its protocol) AND it
+  contains at least one active boot option.  When FALSE, the boot manager
+  registers its hard-coded fallback options (UEFI Shell, SD diagnostics,
+  default Shell) so the box always boots something.
+
+  @retval TRUE   NVRAM wins; do not re-register hard-coded options.
+  @retval FALSE  Register the fallbacks.
+**/
+STATIC
+BOOLEAN
+X96NvramAuthoritative (
+  VOID
+  )
+{
+  EFI_STATUS                     Status;
+  X96_NV_VARS_PERSIST_PROTOCOL  *Persist;
+
+  Status = gBS->LocateProtocol (
+                  &gX96NvVarsPersistProtocolGuid,
+                  NULL,
+                  (VOID **)&Persist
+                  );
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  return Persist->HasBootableOption;
+}
+
 VOID
 EFIAPI
 PlatformBootManagerBeforeConsole (
@@ -1422,26 +1467,6 @@ PlatformBootManagerAfterConsole (
   HandleCapsules ();
 
   //
-  // Register UEFI Shell
-  //
-  Key.ScanCode    = SCAN_NULL;
-  Key.UnicodeChar = L's';
-  PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", 0, &Key);
-
-  //
-  // X96 SD diagnostics is an FV-resident app bound to the 'd' hotkey: with
-  // no serial and possibly no filesystem, pressing 'd' during the countdown
-  // prints the SD identification diagnostics on the local console.
-  //
-  {
-    EFI_INPUT_KEY  KeyD;
-
-    KeyD.ScanCode    = SCAN_NULL;
-    KeyD.UnicodeChar = L'd';
-    PlatformRegisterFvBootOption (&gX96SdDiagFileGuid, L"X96 SD Diagnostic", 0, &KeyD);
-  }
-
-  //
   // X96 additions: a plainly-named entry for the setup UI (the same UiApp
   // image PcdBootManagerMenuFile names), and the MaskROM USB-recovery
   // reboot helper embedded in the firmware volume.
@@ -1581,11 +1606,97 @@ PlatformBootManagerAfterConsole (
   }
 
   //
+  // Restore the persisted NVRAM here: the boot card's filesystem is
+  // connected and the controller churn (USB retry loop) has settled, so the
+  // load runs serialized with the BDS flow instead of racing a controller
+  // connect in flight.  X96NvVarsPersistDxe listens for this event; the
+  // store must be restored before anything below consults NVRAM.
+  //
+  {
+    EFI_STATUS  Status;
+    EFI_EVENT   LoadEvent;
+
+    LoadEvent = NULL;
+    Status    = gBS->CreateEventEx (
+                       EVT_NOTIFY_SIGNAL,
+                       TPL_CALLBACK,
+                       X96NvVarsLoadSignalNotify,
+                       NULL,
+                       &gX96NvVarsLoadEventGuid,
+                       &LoadEvent
+                       );
+    if (!EFI_ERROR (Status)) {
+      gBS->SignalEvent (LoadEvent);
+      gBS->CloseEvent (LoadEvent);
+
+      //
+      // Drive the replay from here: the driver's load callback only reads
+      // and validates the store image, because SetVariable issued from a
+      // TPL_CALLBACK notify wedges the variable services on this board.
+      // Run in our own TPL_APPLICATION context instead, the same one every
+      // boot-manager SetVariable uses safely.
+      //
+      {
+        X96_NV_VARS_PERSIST_PROTOCOL  *Persist;
+
+        Persist = NULL;
+        Status  = gBS->LocateProtocol (
+                        &gX96NvVarsPersistProtocolGuid,
+                        NULL,
+                        (VOID **)&Persist
+                        );
+        if (!EFI_ERROR (Status) && (Persist->Replay != NULL)) {
+          Status = Persist->Replay (Persist);
+          if (EFI_ERROR (Status)) {
+            DEBUG ((DEBUG_INFO, "X96 Bds: NVRAM replay: %r\n", Status));
+          }
+        }
+      }
+    }
+  }
+
+  //
+  // Boot-option policy.  When the persisted store was restored AND it can
+  // boot something on its own, NVRAM is authoritative and the hard-coded
+  // options below are NOT re-registered -- a boot entry the user deleted
+  // from the boot manager stays deleted, boot entries the user added
+  // survive power cycles, and the boot order the user chose is respected.
+  // On a virgin store, a store that failed to load, or a restored store
+  // without any active boot option (e.g. the user deleted every entry),
+  // the fallbacks are registered so the box always boots something.
+  //
+  if (!X96NvramAuthoritative ()) {
+    //
+    // Register UEFI Shell
+    //
+    Key.ScanCode    = SCAN_NULL;
+    Key.UnicodeChar = L's';
+    PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", 0, &Key);
+
+    //
+    // X96 SD diagnostics is an FV-resident app bound to the 'd' hotkey: with
+    // no serial and possibly no filesystem, pressing 'd' during the countdown
+    // prints the SD identification diagnostics on the local console.
+    //
+    {
+      EFI_INPUT_KEY  KeyD;
+
+      KeyD.ScanCode    = SCAN_NULL;
+      KeyD.UnicodeChar = L'd';
+      PlatformRegisterFvBootOption (&gX96SdDiagFileGuid, L"X96 SD Diagnostic", 0, &KeyD);
+    }
+  }
+
+  //
   // Default boot: the UEFI Shell, which runs startup.nsh from the first
   // mapped filesystem.  All boot policy therefore lives in an editable
-  // script on the card instead of being baked into the firmware.
+  // script on the card instead of being baked into the firmware.  Skipped
+  // when the persisted NVRAM is authoritative: the stored boot order (and
+  // any entry the user deleted) must win over a re-inserted default.
   //
-  X96RegisterShellDefaultOption ();
+  if (!X96NvramAuthoritative ()) {
+    X96RegisterShellDefaultOption ();
+  }
 }
 
 //

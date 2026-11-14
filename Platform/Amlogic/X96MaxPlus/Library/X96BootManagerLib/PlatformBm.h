@@ -38,6 +38,8 @@ EnableQuietBoot (
   IN  EFI_GUID  *LogoFile
   );
 
+#include "../../Drivers/X96NvVarsPersistDxe/X96NvVarsPersist.h"
+
 /**
   Use SystemTable Conout to turn on video based Simple Text Out consoles. The
   Simple Text Out screens will now be synced up with all non video output
